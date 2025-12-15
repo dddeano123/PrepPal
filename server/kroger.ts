@@ -139,7 +139,7 @@ export class KrogerService {
     term: string,
     locationId?: string,
     limit: number = 10
-  ): Promise<KrogerProduct[]> {
+  ): Promise<{ products: KrogerProduct[]; status: number }> {
     const params = new URLSearchParams({
       "filter.term": term,
       "filter.limit": limit.toString(),
@@ -157,12 +157,11 @@ export class KrogerService {
     });
 
     if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Failed to search products: ${error}`);
+      return { products: [], status: response.status };
     }
 
     const data = await response.json();
-    return data.data || [];
+    return { products: data.data || [], status: response.status };
   }
 
   async searchLocations(
@@ -196,7 +195,7 @@ export class KrogerService {
   async addToCart(
     accessToken: string,
     items: { upc: string; quantity: number }[]
-  ): Promise<void> {
+  ): Promise<{ success: boolean; status: number; error?: string }> {
     const response = await fetch(`${KROGER_API_BASE}/cart/add`, {
       method: "PUT",
       headers: {
@@ -214,8 +213,10 @@ export class KrogerService {
 
     if (!response.ok) {
       const error = await response.text();
-      throw new Error(`Failed to add to cart: ${error}`);
+      return { success: false, status: response.status, error };
     }
+
+    return { success: true, status: response.status };
   }
 }
 

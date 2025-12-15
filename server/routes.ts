@@ -450,11 +450,16 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Kroger API not configured" });
       }
       
+      const userId = req.user.claims.sub;
+      
       // Generate state for CSRF protection
       const state = crypto.randomBytes(16).toString("hex");
       
-      // Store state in session for verification
-      (req.session as any).krogerOAuthState = state;
+      // Store state in session for verification (namespaced by userId)
+      if (!(req.session as any).krogerOAuthStates) {
+        (req.session as any).krogerOAuthStates = {};
+      }
+      (req.session as any).krogerOAuthStates[userId] = state;
       
       const authUrl = krogerService.getAuthorizationUrl(state);
       res.json({ authUrl });
@@ -467,17 +472,26 @@ export async function registerRoutes(
   // Kroger OAuth callback
   app.get("/api/kroger/callback", isAuthenticated, async (req: any, res) => {
     try {
-      const { code, state } = req.query;
+      const { code, state, error } = req.query;
       const userId = req.user.claims.sub;
       
-      // Verify state to prevent CSRF
-      const savedState = (req.session as any).krogerOAuthState;
-      if (!savedState || savedState !== state) {
-        return res.redirect("/?error=invalid_state");
+      // Handle Kroger-side errors (user denied, etc.)
+      if (error || !code || !state) {
+        console.error("Kroger callback error:", error || "Missing code/state");
+        return res.redirect("/shopping-list?error=kroger_auth_failed");
       }
       
-      // Clear the saved state
-      delete (req.session as any).krogerOAuthState;
+      // Verify state to prevent CSRF (namespaced by userId)
+      const krogerStates = (req.session as any).krogerOAuthStates || {};
+      const savedState = krogerStates[userId];
+      if (!savedState || savedState !== state) {
+        console.error("State mismatch - expected:", savedState, "got:", state);
+        return res.redirect("/shopping-list?error=invalid_state");
+      }
+      
+      // Clear the saved state for this user
+      delete krogerStates[userId];
+      (req.session as any).krogerOAuthStates = krogerStates;
       
       // Exchange code for tokens
       const tokens = await krogerService.exchangeCodeForTokens(code as string);
@@ -543,6 +557,30 @@ export async function registerRoutes(
     return tokens.accessToken;
   }
 
+  // Helper to force refresh token (used when API returns 401)
+  async function forceRefreshKrogerToken(userId: string): Promise<string | null> {
+    const tokens = await storage.getKrogerTokens(userId);
+    if (!tokens) return null;
+    
+    try {
+      const newTokens = await krogerService.refreshAccessToken(tokens.refreshToken);
+      const expiresAt = new Date(Date.now() + newTokens.expires_in * 1000);
+      
+      await storage.upsertKrogerTokens({
+        userId,
+        accessToken: newTokens.access_token,
+        refreshToken: newTokens.refresh_token,
+        expiresAt,
+      });
+      
+      return newTokens.access_token;
+    } catch (error) {
+      console.error("Failed to force refresh Kroger token:", error);
+      await storage.deleteKrogerTokens(userId);
+      return null;
+    }
+  }
+
   // Search Kroger locations by zip code
   app.get("/api/kroger/locations", isAuthenticated, async (req: any, res) => {
     try {
@@ -594,19 +632,36 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Search term is required" });
       }
       
-      const accessToken = await getValidKrogerToken(userId);
+      let accessToken = await getValidKrogerToken(userId);
       if (!accessToken) {
-        return res.status(401).json({ message: "Kroger not connected" });
+        return res.status(401).json({ message: "Kroger not connected", reconnect: true });
       }
       
       const tokens = await storage.getKrogerTokens(userId);
-      const products = await krogerService.searchProducts(
+      let result = await krogerService.searchProducts(
         accessToken,
         term,
         tokens?.locationId || undefined
       );
       
-      res.json(products);
+      // Retry once if we get a 401/403 (token may have been revoked)
+      if (result.status === 401 || result.status === 403) {
+        accessToken = await forceRefreshKrogerToken(userId);
+        if (!accessToken) {
+          return res.status(401).json({ message: "Kroger session expired. Please reconnect.", reconnect: true });
+        }
+        result = await krogerService.searchProducts(
+          accessToken,
+          term,
+          tokens?.locationId || undefined
+        );
+        if (result.status === 401 || result.status === 403) {
+          await storage.deleteKrogerTokens(userId);
+          return res.status(401).json({ message: "Kroger session expired. Please reconnect.", reconnect: true });
+        }
+      }
+      
+      res.json(result.products);
     } catch (error) {
       console.error("Error searching Kroger products:", error);
       res.status(500).json({ message: "Failed to search products" });
@@ -623,12 +678,37 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Items array is required" });
       }
       
-      const accessToken = await getValidKrogerToken(userId);
+      let accessToken = await getValidKrogerToken(userId);
       if (!accessToken) {
-        return res.status(401).json({ message: "Kroger not connected" });
+        return res.status(401).json({ message: "Kroger not connected", reconnect: true });
       }
       
-      await krogerService.addToCart(accessToken, items);
+      let result = await krogerService.addToCart(accessToken, items);
+      
+      // Retry once if we get a 401/403 (token may have been revoked)
+      if (result.status === 401 || result.status === 403) {
+        accessToken = await forceRefreshKrogerToken(userId);
+        if (!accessToken) {
+          return res.status(401).json({ message: "Kroger session expired. Please reconnect.", reconnect: true });
+        }
+        result = await krogerService.addToCart(accessToken, items);
+        if (result.status === 401 || result.status === 403) {
+          await storage.deleteKrogerTokens(userId);
+          return res.status(401).json({ message: "Kroger session expired. Please reconnect.", reconnect: true });
+        }
+      }
+      
+      if (!result.success) {
+        // Return structured error for client errors
+        if (result.status >= 400 && result.status < 500) {
+          return res.status(result.status).json({ 
+            message: "Could not add items to cart. Some products may be unavailable.",
+            error: result.error
+          });
+        }
+        return res.status(500).json({ message: "Failed to add items to cart" });
+      }
+      
       res.json({ success: true, itemCount: items.length });
     } catch (error) {
       console.error("Error adding to Kroger cart:", error);

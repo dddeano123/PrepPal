@@ -70,11 +70,19 @@ Preferred communication style: Simple, everyday language.
 
 **Replit Auth**: OpenID Connect authentication provider for user login/signup.
 
+**Kroger API**: Integration for adding shopping list items directly to user's Kroger cart.
+- OAuth 2.0 flow for user authentication
+- Product search by ingredient name
+- Cart management (add items)
+- Store location search by zip code
+- Tokens stored in `kroger_tokens` table with automatic refresh
+
 ## External Dependencies
 
 ### Third-Party Services
 - **USDA FoodData Central API** - Nutrition data source (requires `USDA_API_KEY` environment variable, defaults to `DEMO_KEY`)
 - **Replit Auth** - Authentication via OpenID Connect (requires `ISSUER_URL`, `REPL_ID`, `SESSION_SECRET`)
+- **Kroger API** - Shopping cart integration (requires `KROGER_CLIENT_ID`, `KROGER_CLIENT_SECRET`, `KROGER_REDIRECT_URI`)
 
 ### Database
 - **PostgreSQL** - Primary data store (requires `DATABASE_URL` environment variable)

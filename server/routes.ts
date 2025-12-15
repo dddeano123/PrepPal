@@ -3,8 +3,10 @@ import { type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replitAuth";
 import { searchUSDAFoods } from "./usda";
+import { krogerService } from "./kroger";
 import { insertRecipeSchema, insertFoodSchema, insertIngredientAliasSchema, insertPantryStapleSchema } from "@shared/schema";
 import { z } from "zod";
+import crypto from "crypto";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -417,6 +419,220 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error checking pantry staple:", error);
       res.status(500).json({ message: "Failed to check pantry staple" });
+    }
+  });
+
+  // ==================== Kroger Integration Routes ====================
+
+  // Check if Kroger API is configured
+  app.get("/api/kroger/status", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const isConfigured = krogerService.isConfigured();
+      const tokens = await storage.getKrogerTokens(userId);
+      const isConnected = !!(tokens && tokens.expiresAt > new Date());
+      
+      res.json({
+        isConfigured,
+        isConnected,
+        locationId: tokens?.locationId || null,
+      });
+    } catch (error) {
+      console.error("Error checking Kroger status:", error);
+      res.status(500).json({ message: "Failed to check Kroger status" });
+    }
+  });
+
+  // Get Kroger authorization URL
+  app.get("/api/kroger/auth-url", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!krogerService.isConfigured()) {
+        return res.status(400).json({ message: "Kroger API not configured" });
+      }
+      
+      // Generate state for CSRF protection
+      const state = crypto.randomBytes(16).toString("hex");
+      
+      // Store state in session for verification
+      (req.session as any).krogerOAuthState = state;
+      
+      const authUrl = krogerService.getAuthorizationUrl(state);
+      res.json({ authUrl });
+    } catch (error) {
+      console.error("Error generating Kroger auth URL:", error);
+      res.status(500).json({ message: "Failed to generate auth URL" });
+    }
+  });
+
+  // Kroger OAuth callback
+  app.get("/api/kroger/callback", isAuthenticated, async (req: any, res) => {
+    try {
+      const { code, state } = req.query;
+      const userId = req.user.claims.sub;
+      
+      // Verify state to prevent CSRF
+      const savedState = (req.session as any).krogerOAuthState;
+      if (!savedState || savedState !== state) {
+        return res.redirect("/?error=invalid_state");
+      }
+      
+      // Clear the saved state
+      delete (req.session as any).krogerOAuthState;
+      
+      // Exchange code for tokens
+      const tokens = await krogerService.exchangeCodeForTokens(code as string);
+      
+      // Calculate expiration time
+      const expiresAt = new Date(Date.now() + tokens.expires_in * 1000);
+      
+      // Store tokens in database
+      await storage.upsertKrogerTokens({
+        userId,
+        accessToken: tokens.access_token,
+        refreshToken: tokens.refresh_token,
+        expiresAt,
+      });
+      
+      // Redirect to shopping list with success message
+      res.redirect("/shopping-list?kroger=connected");
+    } catch (error) {
+      console.error("Error handling Kroger callback:", error);
+      res.redirect("/shopping-list?error=kroger_auth_failed");
+    }
+  });
+
+  // Disconnect Kroger account
+  app.delete("/api/kroger/disconnect", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      await storage.deleteKrogerTokens(userId);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error disconnecting Kroger:", error);
+      res.status(500).json({ message: "Failed to disconnect Kroger" });
+    }
+  });
+
+  // Helper to get valid access token (refreshes if needed)
+  async function getValidKrogerToken(userId: string): Promise<string | null> {
+    const tokens = await storage.getKrogerTokens(userId);
+    if (!tokens) return null;
+    
+    // Check if token is expired or about to expire (5 min buffer)
+    const bufferMs = 5 * 60 * 1000;
+    if (tokens.expiresAt.getTime() - Date.now() < bufferMs) {
+      try {
+        const newTokens = await krogerService.refreshAccessToken(tokens.refreshToken);
+        const expiresAt = new Date(Date.now() + newTokens.expires_in * 1000);
+        
+        await storage.upsertKrogerTokens({
+          userId,
+          accessToken: newTokens.access_token,
+          refreshToken: newTokens.refresh_token,
+          expiresAt,
+        });
+        
+        return newTokens.access_token;
+      } catch (error) {
+        console.error("Failed to refresh Kroger token:", error);
+        await storage.deleteKrogerTokens(userId);
+        return null;
+      }
+    }
+    
+    return tokens.accessToken;
+  }
+
+  // Search Kroger locations by zip code
+  app.get("/api/kroger/locations", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const zipCode = req.query.zipCode as string;
+      
+      if (!zipCode) {
+        return res.status(400).json({ message: "Zip code is required" });
+      }
+      
+      const accessToken = await getValidKrogerToken(userId);
+      if (!accessToken) {
+        return res.status(401).json({ message: "Kroger not connected" });
+      }
+      
+      const locations = await krogerService.searchLocations(accessToken, zipCode);
+      res.json(locations);
+    } catch (error) {
+      console.error("Error searching Kroger locations:", error);
+      res.status(500).json({ message: "Failed to search locations" });
+    }
+  });
+
+  // Set preferred Kroger location
+  app.put("/api/kroger/location", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { locationId } = req.body;
+      
+      if (!locationId) {
+        return res.status(400).json({ message: "Location ID is required" });
+      }
+      
+      await storage.updateKrogerLocation(userId, locationId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error setting Kroger location:", error);
+      res.status(500).json({ message: "Failed to set location" });
+    }
+  });
+
+  // Search Kroger products
+  app.get("/api/kroger/products", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const term = req.query.term as string;
+      
+      if (!term) {
+        return res.status(400).json({ message: "Search term is required" });
+      }
+      
+      const accessToken = await getValidKrogerToken(userId);
+      if (!accessToken) {
+        return res.status(401).json({ message: "Kroger not connected" });
+      }
+      
+      const tokens = await storage.getKrogerTokens(userId);
+      const products = await krogerService.searchProducts(
+        accessToken,
+        term,
+        tokens?.locationId || undefined
+      );
+      
+      res.json(products);
+    } catch (error) {
+      console.error("Error searching Kroger products:", error);
+      res.status(500).json({ message: "Failed to search products" });
+    }
+  });
+
+  // Add items to Kroger cart
+  app.post("/api/kroger/cart", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { items } = req.body;
+      
+      if (!items || !Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ message: "Items array is required" });
+      }
+      
+      const accessToken = await getValidKrogerToken(userId);
+      if (!accessToken) {
+        return res.status(401).json({ message: "Kroger not connected" });
+      }
+      
+      await krogerService.addToCart(accessToken, items);
+      res.json({ success: true, itemCount: items.length });
+    } catch (error) {
+      console.error("Error adding to Kroger cart:", error);
+      res.status(500).json({ message: "Failed to add items to cart" });
     }
   });
 

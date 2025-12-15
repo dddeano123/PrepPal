@@ -6,6 +6,7 @@ import {
   shoppingLists,
   ingredientAliases,
   pantryStaples,
+  krogerTokens,
   type User,
   type UpsertUser,
   type Recipe,
@@ -20,6 +21,8 @@ import {
   type InsertIngredientAlias,
   type PantryStaple,
   type InsertPantryStaple,
+  type KrogerTokens,
+  type InsertKrogerTokens,
   type RecipeWithIngredients,
   type IngredientWithFood,
 } from "@shared/schema";
@@ -64,6 +67,12 @@ export interface IStorage {
   createPantryStaple(staple: InsertPantryStaple): Promise<PantryStaple>;
   deletePantryStaple(id: number, userId: string): Promise<boolean>;
   isPantryStaple(userId: string, ingredientName: string): Promise<boolean>;
+
+  // Kroger tokens operations
+  getKrogerTokens(userId: string): Promise<KrogerTokens | undefined>;
+  upsertKrogerTokens(tokens: InsertKrogerTokens): Promise<KrogerTokens>;
+  updateKrogerLocation(userId: string, locationId: string): Promise<void>;
+  deleteKrogerTokens(userId: string): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -387,6 +396,54 @@ export class DatabaseStorage implements IStorage {
         )
       );
     return !!match;
+  }
+
+  // Kroger tokens operations
+  async getKrogerTokens(userId: string): Promise<KrogerTokens | undefined> {
+    const [tokens] = await db
+      .select()
+      .from(krogerTokens)
+      .where(eq(krogerTokens.userId, userId));
+    return tokens;
+  }
+
+  async upsertKrogerTokens(tokensData: InsertKrogerTokens): Promise<KrogerTokens> {
+    const existing = await this.getKrogerTokens(tokensData.userId);
+    
+    if (existing) {
+      const [updated] = await db
+        .update(krogerTokens)
+        .set({
+          accessToken: tokensData.accessToken,
+          refreshToken: tokensData.refreshToken,
+          expiresAt: tokensData.expiresAt,
+          updatedAt: new Date(),
+        })
+        .where(eq(krogerTokens.userId, tokensData.userId))
+        .returning();
+      return updated;
+    }
+    
+    const [created] = await db
+      .insert(krogerTokens)
+      .values(tokensData)
+      .returning();
+    return created;
+  }
+
+  async updateKrogerLocation(userId: string, locationId: string): Promise<void> {
+    await db
+      .update(krogerTokens)
+      .set({ locationId, updatedAt: new Date() })
+      .where(eq(krogerTokens.userId, userId));
+  }
+
+  async deleteKrogerTokens(userId: string): Promise<boolean> {
+    const result = await db
+      .delete(krogerTokens)
+      .where(eq(krogerTokens.userId, userId))
+      .returning();
+    return result.length > 0;
   }
 }
 

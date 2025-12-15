@@ -206,6 +206,34 @@ export const insertPantryStapleSchema = createInsertSchema(pantryStaples).omit({
 export type InsertPantryStaple = z.infer<typeof insertPantryStapleSchema>;
 export type PantryStaple = typeof pantryStaples.$inferSelect;
 
+// Kroger integration - stores user's Kroger OAuth tokens
+export const krogerTokens = pgTable("kroger_tokens", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id).unique(),
+  accessToken: text("access_token").notNull(),
+  refreshToken: text("refresh_token").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  locationId: varchar("location_id"), // User's preferred store
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const krogerTokensRelations = relations(krogerTokens, ({ one }) => ({
+  user: one(users, {
+    fields: [krogerTokens.userId],
+    references: [users.id],
+  }),
+}));
+
+export const insertKrogerTokensSchema = createInsertSchema(krogerTokens).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertKrogerTokens = z.infer<typeof insertKrogerTokensSchema>;
+export type KrogerTokens = typeof krogerTokens.$inferSelect;
+
 // Extended types for frontend use
 export type RecipeWithIngredients = Recipe & {
   ingredients: (Ingredient & { food: Food | null })[];

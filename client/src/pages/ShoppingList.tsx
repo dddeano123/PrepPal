@@ -367,21 +367,98 @@ export default function ShoppingList() {
         title="Shopping List"
         description="Generate a consolidated shopping list from your recipes"
         action={
-          selectedRecipeIds.length > 0 && (
-            <Button onClick={copyToClipboard} data-testid="button-copy-list">
-              {copied ? (
-                <>
-                  <Check className="h-4 w-4 mr-2" />
-                  Copied!
-                </>
-              ) : (
-                <>
-                  <Copy className="h-4 w-4 mr-2" />
-                  Copy List
-                </>
-              )}
-            </Button>
-          )
+          <div className="flex items-center gap-2 flex-wrap">
+            <Dialog open={pantryDialogOpen} onOpenChange={setPantryDialogOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline" data-testid="button-manage-pantry">
+                  <Settings2 className="h-4 w-4 mr-2" />
+                  Pantry
+                  {pantryStaples && pantryStaples.length > 0 && (
+                    <Badge variant="secondary" size="sm" className="ml-1">
+                      {pantryStaples.length}
+                    </Badge>
+                  )}
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Pantry Staples</DialogTitle>
+                </DialogHeader>
+                <p className="text-sm text-muted-foreground">
+                  Items you always have on hand. These will be excluded from shopping lists when the "Exclude pantry staples" option is enabled.
+                </p>
+                <div className="space-y-4 mt-4">
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="e.g., salt, olive oil, garlic"
+                      value={newPantryStaple}
+                      onChange={(e) => setNewPantryStaple(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && newPantryStaple.trim()) {
+                          createPantryStapleMutation.mutate({ name: newPantryStaple.trim() });
+                        }
+                      }}
+                      data-testid="input-pantry-staple"
+                    />
+                    <Button
+                      onClick={() => {
+                        if (newPantryStaple.trim()) {
+                          createPantryStapleMutation.mutate({ name: newPantryStaple.trim() });
+                        }
+                      }}
+                      disabled={!newPantryStaple.trim() || createPantryStapleMutation.isPending}
+                      data-testid="button-add-pantry-staple"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+                {pantryStaples && pantryStaples.length > 0 && (
+                  <div className="mt-4">
+                    <Label className="text-muted-foreground">Your pantry staples</Label>
+                    <ScrollArea className="max-h-[250px] mt-2">
+                      <div className="flex flex-wrap gap-2">
+                        {pantryStaples.map((staple) => (
+                          <Badge
+                            key={staple.id}
+                            variant="secondary"
+                            className="pr-1 gap-1"
+                            data-testid={`pantry-staple-${staple.id}`}
+                          >
+                            {staple.name}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-4 w-4 ml-1 p-0"
+                              onClick={() => deletePantryStapleMutation.mutate(staple.id)}
+                              data-testid={`button-delete-pantry-${staple.id}`}
+                            >
+                              <X className="h-3 w-3" />
+                            </Button>
+                          </Badge>
+                        ))}
+                      </div>
+                    </ScrollArea>
+                  </div>
+                )}
+              </DialogContent>
+            </Dialog>
+            {selectedRecipeIds.length > 0 && (
+              <Button onClick={copyToClipboard} data-testid="button-copy-list">
+                {copied ? (
+                  <>
+                    <Check className="h-4 w-4 mr-2" />
+                    Copied!
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-4 w-4 mr-2" />
+                    Copy List
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
         }
       />
 
@@ -487,81 +564,6 @@ export default function ShoppingList() {
                                     <Trash2 className="h-4 w-4" />
                                   </Button>
                                 </div>
-                              ))}
-                            </div>
-                          </ScrollArea>
-                        </div>
-                      )}
-                    </DialogContent>
-                  </Dialog>
-                  <Dialog open={pantryDialogOpen} onOpenChange={setPantryDialogOpen}>
-                    <DialogTrigger asChild>
-                      <Button variant="ghost" size="sm" data-testid="button-manage-pantry">
-                        <Settings2 className="h-4 w-4 mr-1" />
-                        Pantry
-                        {pantryStaples && pantryStaples.length > 0 && (
-                          <Badge variant="secondary" size="sm" className="ml-1">
-                            {pantryStaples.length}
-                          </Badge>
-                        )}
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="max-w-md">
-                      <DialogHeader>
-                        <DialogTitle>Pantry Staples</DialogTitle>
-                      </DialogHeader>
-                      <p className="text-sm text-muted-foreground">
-                        Items you always have on hand. These will be excluded from shopping lists when the "Exclude pantry staples" option is enabled.
-                      </p>
-                      <div className="space-y-4 mt-4">
-                        <div className="flex gap-2">
-                          <Input
-                            placeholder="e.g., salt, olive oil, garlic"
-                            value={newPantryStaple}
-                            onChange={(e) => setNewPantryStaple(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter" && newPantryStaple.trim()) {
-                                createPantryStapleMutation.mutate({ name: newPantryStaple.trim() });
-                              }
-                            }}
-                            data-testid="input-pantry-staple"
-                          />
-                          <Button
-                            onClick={() => {
-                              if (newPantryStaple.trim()) {
-                                createPantryStapleMutation.mutate({ name: newPantryStaple.trim() });
-                              }
-                            }}
-                            disabled={!newPantryStaple.trim() || createPantryStapleMutation.isPending}
-                            data-testid="button-add-pantry-staple"
-                          >
-                            <Plus className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                      {pantryStaples && pantryStaples.length > 0 && (
-                        <div className="mt-4">
-                          <Label className="text-muted-foreground">Your pantry staples</Label>
-                          <ScrollArea className="max-h-[250px] mt-2">
-                            <div className="flex flex-wrap gap-2">
-                              {pantryStaples.map((staple) => (
-                                <Badge
-                                  key={staple.id}
-                                  variant="secondary"
-                                  className="pr-1 gap-1"
-                                  data-testid={`pantry-staple-${staple.id}`}
-                                >
-                                  {staple.name}
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-4 w-4 ml-1 p-0"
-                                    onClick={() => deletePantryStapleMutation.mutate(staple.id)}
-                                    data-testid={`button-delete-pantry-${staple.id}`}
-                                  >
-                                    <X className="h-3 w-3" />
-                                  </Button>
-                                </Badge>
                               ))}
                             </div>
                           </ScrollArea>

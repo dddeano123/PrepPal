@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation, useParams } from "wouter";
 import { useForm } from "react-hook-form";
@@ -27,6 +27,15 @@ import { useToast } from "@/hooks/use-toast";
 import { calculateRecipeTotals } from "@/lib/macros";
 import type { RecipeWithIngredients, Food, USDAFoodSearchResult } from "@shared/schema";
 
+interface KrogerProduct {
+  productId: string;
+  upc: string;
+  description: string;
+  brand?: string;
+  images?: { perspective: string; sizes: { size: string; url: string }[] }[];
+  items?: { price?: { regular: number; promo?: number }; size?: string }[];
+}
+
 const recipeFormSchema = z.object({
   title: z.string().min(1, "Title is required"),
   description: z.string().optional(),
@@ -51,6 +60,7 @@ export default function RecipeForm() {
   const [instructions, setInstructions] = useState<string[]>([]);
   const [foodSearchOpen, setFoodSearchOpen] = useState(false);
   const [editingIngredientIndex, setEditingIngredientIndex] = useState<number | null>(null);
+  const [autoMatchingIndices, setAutoMatchingIndices] = useState<Set<number>>(new Set());
 
   const { data: recipe, isLoading } = useQuery<RecipeWithIngredients>({
     queryKey: ["/api/recipes", id],
@@ -203,6 +213,108 @@ export default function RecipeForm() {
     setEditingIngredientIndex(null);
   };
 
+  // Handle Kroger product selection - auto-search USDA and match nutrition
+  const handleKrogerProductSelect = useCallback(async (index: number, product: KrogerProduct) => {
+    // Update ingredient name with product description
+    updateIngredient(index, { 
+      displayName: product.description,
+      krogerProductId: product.productId,
+    });
+
+    // Set auto-matching state
+    setAutoMatchingIndices(prev => new Set(prev).add(index));
+
+    try {
+      // Extract search term from product description (remove brand and size info)
+      const searchTerms = product.description
+        .replace(/\d+\s*(oz|lb|ct|pack|count|fl\s*oz|ml|g|kg)/gi, '')
+        .replace(/[^a-zA-Z\s]/g, '')
+        .trim()
+        .split(/\s+/)
+        .slice(0, 3)
+        .join(' ');
+
+      // Search USDA for matching food
+      const response = await fetch(`/api/usda/search?query=${encodeURIComponent(searchTerms)}&pageSize=5`);
+      
+      if (!response.ok) {
+        throw new Error('USDA search failed');
+      }
+
+      const data = await response.json();
+      
+      if (data.foods && data.foods.length > 0) {
+        // Pick the best match (first result typically most relevant)
+        const bestMatch = data.foods[0];
+        
+        // Extract nutrition data with validation
+        const getNutrient = (id: number) => 
+          bestMatch.foodNutrients?.find((n: any) => n.nutrientId === id)?.value;
+        
+        const calories = getNutrient(1008);
+        const protein = getNutrient(1003);
+        const carbs = getNutrient(1005);
+        const fat = getNutrient(1004);
+        
+        // Validate that we have at least calories data
+        if (calories === undefined || calories === null) {
+          toast({
+            title: "Incomplete nutrition data",
+            description: "USDA data is missing calories. Please manually link this ingredient.",
+            variant: "default",
+          });
+          return;
+        }
+        
+        // Save the food to our database
+        const saveResponse = await apiRequest("POST", "/api/foods", {
+          fdcId: bestMatch.fdcId,
+          name: bestMatch.description,
+          dataType: bestMatch.dataType || 'SR Legacy',
+          caloriesPer100g: calories || 0,
+          proteinPer100g: protein || 0,
+          carbsPer100g: carbs || 0,
+          fatPer100g: fat || 0,
+        });
+
+        const savedFood: Food = await saveResponse.json();
+        
+        // Update ingredient with matched food
+        updateIngredient(index, {
+          foodId: savedFood.id,
+          food: savedFood,
+        });
+
+        queryClient.invalidateQueries({ queryKey: ["/api/foods"] });
+        
+        toast({
+          title: "Nutrition matched",
+          description: `Matched "${product.description}" to USDA: ${savedFood.name}`,
+        });
+      } else {
+        toast({
+          title: "No nutrition match found",
+          description: "You can manually link this ingredient to USDA data.",
+          variant: "default",
+        });
+      }
+    } catch (error) {
+      console.error('Auto-match error:', error);
+      toast({
+        title: "Auto-match failed",
+        description: "You can manually link this ingredient using the search button.",
+        variant: "destructive",
+      });
+    } finally {
+      // Remove from auto-matching state
+      setAutoMatchingIndices(prev => {
+        const next = new Set(prev);
+        next.delete(index);
+        return next;
+      });
+    }
+  }, [toast, updateIngredient]);
+
   const addInstruction = () => {
     setInstructions((prev) => [...prev, ""]);
   };
@@ -218,6 +330,14 @@ export default function RecipeForm() {
   };
 
   const onSubmit = (data: RecipeFormValues) => {
+    // Prevent submission while auto-matching is in progress
+    if (autoMatchingIndices.size > 0) {
+      toast({
+        title: "Please wait",
+        description: "Ingredients are still being matched. Please wait for completion.",
+      });
+      return;
+    }
     saveMutation.mutate(data);
   };
 
@@ -360,6 +480,8 @@ export default function RecipeForm() {
                         onUpdate={(updates) => updateIngredient(index, updates)}
                         onDelete={() => deleteIngredient(index)}
                         onMatchFood={() => openFoodSearch(index)}
+                        onKrogerProductSelect={(product) => handleKrogerProductSelect(index, product)}
+                        isAutoMatching={autoMatchingIndices.has(index)}
                       />
                     ))}
                   </div>

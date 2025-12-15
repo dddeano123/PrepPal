@@ -1,9 +1,19 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { GripVertical, Search, Trash2, AlertTriangle, Link2 } from "lucide-react";
+import { IngredientAutocomplete } from "@/components/IngredientAutocomplete";
+import { GripVertical, Search, Trash2, AlertTriangle, Link2, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatMacro, calculateIngredientMacros } from "@/lib/macros";
 import type { Food } from "@shared/schema";
+
+interface KrogerProduct {
+  productId: string;
+  upc: string;
+  description: string;
+  brand?: string;
+  images?: { perspective: string; sizes: { size: string; url: string }[] }[];
+  items?: { price?: { regular: number; promo?: number }; size?: string }[];
+}
 
 // Flexible ingredient type for the row - works for both new/edit and display
 export interface EditableIngredient {
@@ -15,6 +25,7 @@ export interface EditableIngredient {
   food: Food | null;
   category: string | null;
   isPantryStaple: boolean | null;
+  krogerProductId?: string | null;
 }
 
 interface IngredientRowProps {
@@ -23,6 +34,8 @@ interface IngredientRowProps {
   onUpdate: (updates: Partial<EditableIngredient>) => void;
   onDelete: () => void;
   onMatchFood: () => void;
+  onKrogerProductSelect?: (product: KrogerProduct) => void;
+  isAutoMatching?: boolean;
   isDragging?: boolean;
 }
 
@@ -46,6 +59,8 @@ export function IngredientRow({
   onUpdate,
   onDelete,
   onMatchFood,
+  onKrogerProductSelect,
+  isAutoMatching,
   isDragging,
 }: IngredientRowProps) {
   const isMatched = !!ingredient.food;
@@ -63,7 +78,8 @@ export function IngredientRow({
     <div
       className={cn(
         "grid grid-cols-12 gap-2 items-center p-3 rounded-md border transition-all",
-        !isMatched && "border-amber-300 bg-amber-50/50 dark:border-amber-700 dark:bg-amber-950/20",
+        !isMatched && !isAutoMatching && "border-amber-300 bg-amber-50/50 dark:border-amber-700 dark:bg-amber-950/20",
+        isAutoMatching && "border-blue-300 bg-blue-50/50 dark:border-blue-700 dark:bg-blue-950/20",
         isMatched && "border-border bg-card",
         isDragging && "opacity-50"
       )}
@@ -74,13 +90,24 @@ export function IngredientRow({
       </div>
 
       <div className="col-span-3">
-        <Input
-          value={ingredient.displayName}
-          onChange={(e) => onUpdate({ displayName: e.target.value })}
-          placeholder="Ingredient name"
-          className="h-9"
-          data-testid={`input-ingredient-name-${index}`}
-        />
+        {onKrogerProductSelect ? (
+          <IngredientAutocomplete
+            value={ingredient.displayName}
+            onChange={(value) => onUpdate({ displayName: value })}
+            onProductSelect={onKrogerProductSelect}
+            placeholder="Search ingredients..."
+            className="h-9"
+            data-testid={`input-ingredient-name-${index}`}
+          />
+        ) : (
+          <Input
+            value={ingredient.displayName}
+            onChange={(e) => onUpdate({ displayName: e.target.value })}
+            placeholder="Ingredient name"
+            className="h-9"
+            data-testid={`input-ingredient-name-${index}`}
+          />
+        )}
       </div>
 
       <div className="col-span-1">
@@ -116,7 +143,12 @@ export function IngredientRow({
       </div>
 
       <div className="col-span-3 grid grid-cols-4 gap-1 text-center">
-        {isMatched ? (
+        {isAutoMatching ? (
+          <div className="col-span-4 flex items-center justify-center gap-1">
+            <Loader2 className="h-3.5 w-3.5 text-blue-500 animate-spin" />
+            <span className="text-xs text-blue-600 dark:text-blue-400">Matching...</span>
+          </div>
+        ) : isMatched ? (
           <>
             <span className="font-mono text-sm" data-testid={`text-ingredient-cal-${index}`}>
               {formatMacro(macros!.calories, 0)}
@@ -141,6 +173,7 @@ export function IngredientRow({
 
       <div className="col-span-2 flex items-center justify-end gap-1">
         <Button
+          type="button"
           variant={isMatched ? "ghost" : "outline"}
           size="icon"
           onClick={onMatchFood}
@@ -153,6 +186,7 @@ export function IngredientRow({
           {isMatched ? <Link2 className="h-4 w-4" /> : <Search className="h-4 w-4" />}
         </Button>
         <Button
+          type="button"
           variant="ghost"
           size="icon"
           onClick={onDelete}

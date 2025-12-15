@@ -1,0 +1,205 @@
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { GripVertical, Search, Trash2, AlertTriangle, Link2 } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { formatMacro, calculateIngredientMacros } from "@/lib/macros";
+import type { Food } from "@shared/schema";
+
+// Flexible ingredient type for the row - works for both new/edit and display
+export interface EditableIngredient {
+  displayName: string;
+  amount: number | null;
+  unit: string | null;
+  grams: number;
+  foodId: number | null;
+  food: Food | null;
+  category: string | null;
+  isPantryStaple: boolean | null;
+}
+
+interface IngredientRowProps {
+  ingredient: EditableIngredient;
+  index: number;
+  onUpdate: (updates: Partial<EditableIngredient>) => void;
+  onDelete: () => void;
+  onMatchFood: () => void;
+  isDragging?: boolean;
+}
+
+const CATEGORIES = [
+  { value: "produce", label: "Produce" },
+  { value: "meat", label: "Meat" },
+  { value: "seafood", label: "Seafood" },
+  { value: "dairy", label: "Dairy" },
+  { value: "pantry", label: "Pantry" },
+  { value: "frozen", label: "Frozen" },
+  { value: "bakery", label: "Bakery" },
+  { value: "beverages", label: "Beverages" },
+  { value: "condiments", label: "Condiments" },
+  { value: "spices", label: "Spices" },
+  { value: "other", label: "Other" },
+];
+
+export function IngredientRow({
+  ingredient,
+  index,
+  onUpdate,
+  onDelete,
+  onMatchFood,
+  isDragging,
+}: IngredientRowProps) {
+  const isMatched = !!ingredient.food;
+  const macros = isMatched
+    ? calculateIngredientMacros(
+        ingredient.grams,
+        ingredient.food!.caloriesPer100g,
+        ingredient.food!.proteinPer100g,
+        ingredient.food!.carbsPer100g,
+        ingredient.food!.fatPer100g
+      )
+    : null;
+
+  return (
+    <div
+      className={cn(
+        "grid grid-cols-12 gap-2 items-center p-3 rounded-md border transition-all",
+        !isMatched && "border-amber-300 bg-amber-50/50 dark:border-amber-700 dark:bg-amber-950/20",
+        isMatched && "border-border bg-card",
+        isDragging && "opacity-50"
+      )}
+      data-testid={`ingredient-row-${index}`}
+    >
+      <div className="col-span-1 flex items-center justify-center">
+        <GripVertical className="h-4 w-4 text-muted-foreground cursor-grab" />
+      </div>
+
+      <div className="col-span-3">
+        <Input
+          value={ingredient.displayName}
+          onChange={(e) => onUpdate({ displayName: e.target.value })}
+          placeholder="Ingredient name"
+          className="h-9"
+          data-testid={`input-ingredient-name-${index}`}
+        />
+      </div>
+
+      <div className="col-span-1">
+        <Input
+          type="number"
+          value={ingredient.amount || ""}
+          onChange={(e) => onUpdate({ amount: parseFloat(e.target.value) || 0 })}
+          placeholder="Amt"
+          className="h-9 text-center"
+          data-testid={`input-ingredient-amount-${index}`}
+        />
+      </div>
+
+      <div className="col-span-1">
+        <Input
+          value={ingredient.unit || ""}
+          onChange={(e) => onUpdate({ unit: e.target.value })}
+          placeholder="Unit"
+          className="h-9"
+          data-testid={`input-ingredient-unit-${index}`}
+        />
+      </div>
+
+      <div className="col-span-1">
+        <Input
+          type="number"
+          value={ingredient.grams}
+          onChange={(e) => onUpdate({ grams: parseFloat(e.target.value) || 0 })}
+          placeholder="g"
+          className="h-9 text-center font-mono"
+          data-testid={`input-ingredient-grams-${index}`}
+        />
+      </div>
+
+      <div className="col-span-3 grid grid-cols-4 gap-1 text-center">
+        {isMatched ? (
+          <>
+            <span className="font-mono text-sm" data-testid={`text-ingredient-cal-${index}`}>
+              {formatMacro(macros!.calories, 0)}
+            </span>
+            <span className="font-mono text-sm" data-testid={`text-ingredient-protein-${index}`}>
+              {formatMacro(macros!.protein)}
+            </span>
+            <span className="font-mono text-sm" data-testid={`text-ingredient-carbs-${index}`}>
+              {formatMacro(macros!.carbs)}
+            </span>
+            <span className="font-mono text-sm" data-testid={`text-ingredient-fat-${index}`}>
+              {formatMacro(macros!.fat)}
+            </span>
+          </>
+        ) : (
+          <div className="col-span-4 flex items-center justify-center gap-1">
+            <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+            <span className="text-xs text-amber-600 dark:text-amber-400">Unmatched</span>
+          </div>
+        )}
+      </div>
+
+      <div className="col-span-2 flex items-center justify-end gap-1">
+        <Button
+          variant={isMatched ? "ghost" : "outline"}
+          size="icon"
+          onClick={onMatchFood}
+          className={cn(
+            !isMatched && "border-amber-300 text-amber-600 dark:border-amber-700 dark:text-amber-400"
+          )}
+          data-testid={`button-match-food-${index}`}
+          aria-label="Match to food"
+        >
+          {isMatched ? <Link2 className="h-4 w-4" /> : <Search className="h-4 w-4" />}
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onDelete}
+          data-testid={`button-delete-ingredient-${index}`}
+          aria-label="Delete ingredient"
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+export function IngredientTableHeader() {
+  return (
+    <div className="grid grid-cols-12 gap-2 px-3 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wide border-b">
+      <div className="col-span-1"></div>
+      <div className="col-span-3">Ingredient</div>
+      <div className="col-span-1 text-center">Amount</div>
+      <div className="col-span-1 text-center">Unit</div>
+      <div className="col-span-1 text-center">Grams</div>
+      <div className="col-span-3 grid grid-cols-4 gap-1 text-center">
+        <span>Cal</span>
+        <span>P</span>
+        <span>C</span>
+        <span>F</span>
+      </div>
+      <div className="col-span-2"></div>
+    </div>
+  );
+}
+
+export function IngredientTotalsRow({ totals }: { totals: { calories: number; protein: number; carbs: number; fat: number } }) {
+  return (
+    <div className="grid grid-cols-12 gap-2 px-3 py-3 border-t bg-muted/30 rounded-b-md">
+      <div className="col-span-1"></div>
+      <div className="col-span-3 font-semibold">Total</div>
+      <div className="col-span-1"></div>
+      <div className="col-span-1"></div>
+      <div className="col-span-1"></div>
+      <div className="col-span-3 grid grid-cols-4 gap-1 text-center font-mono font-semibold">
+        <span data-testid="text-total-calories">{formatMacro(totals.calories, 0)}</span>
+        <span data-testid="text-total-protein">{formatMacro(totals.protein)}</span>
+        <span data-testid="text-total-carbs">{formatMacro(totals.carbs)}</span>
+        <span data-testid="text-total-fat">{formatMacro(totals.fat)}</span>
+      </div>
+      <div className="col-span-2"></div>
+    </div>
+  );
+}

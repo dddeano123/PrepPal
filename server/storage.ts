@@ -5,6 +5,7 @@ import {
   foods,
   shoppingLists,
   ingredientAliases,
+  pantryStaples,
   type User,
   type UpsertUser,
   type Recipe,
@@ -17,6 +18,8 @@ import {
   type InsertShoppingList,
   type IngredientAlias,
   type InsertIngredientAlias,
+  type PantryStaple,
+  type InsertPantryStaple,
   type RecipeWithIngredients,
   type IngredientWithFood,
 } from "@shared/schema";
@@ -55,6 +58,12 @@ export interface IStorage {
   createIngredientAlias(alias: InsertIngredientAlias): Promise<IngredientAlias>;
   deleteIngredientAlias(id: number, userId: string): Promise<boolean>;
   getCanonicalName(userId: string, ingredientName: string): Promise<string>;
+
+  // Pantry staples operations
+  getPantryStaples(userId: string): Promise<PantryStaple[]>;
+  createPantryStaple(staple: InsertPantryStaple): Promise<PantryStaple>;
+  deletePantryStaple(id: number, userId: string): Promise<boolean>;
+  isPantryStaple(userId: string, ingredientName: string): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -339,6 +348,45 @@ export class DatabaseStorage implements IStorage {
     
     // Return canonical name if found, otherwise return original
     return alias ? alias.canonicalName : ingredientName;
+  }
+
+  // Pantry staples operations
+  async getPantryStaples(userId: string): Promise<PantryStaple[]> {
+    return await db
+      .select()
+      .from(pantryStaples)
+      .where(eq(pantryStaples.userId, userId))
+      .orderBy(pantryStaples.name);
+  }
+
+  async createPantryStaple(stapleData: InsertPantryStaple): Promise<PantryStaple> {
+    const [staple] = await db
+      .insert(pantryStaples)
+      .values(stapleData)
+      .returning();
+    return staple;
+  }
+
+  async deletePantryStaple(id: number, userId: string): Promise<boolean> {
+    const result = await db
+      .delete(pantryStaples)
+      .where(and(eq(pantryStaples.id, id), eq(pantryStaples.userId, userId)))
+      .returning();
+    return result.length > 0;
+  }
+
+  async isPantryStaple(userId: string, ingredientName: string): Promise<boolean> {
+    const normalizedName = ingredientName.toLowerCase().trim();
+    const [match] = await db
+      .select()
+      .from(pantryStaples)
+      .where(
+        and(
+          eq(pantryStaples.userId, userId),
+          ilike(pantryStaples.name, normalizedName)
+        )
+      );
+    return !!match;
   }
 }
 

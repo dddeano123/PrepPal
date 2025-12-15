@@ -3,7 +3,7 @@ import { type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replitAuth";
 import { searchUSDAFoods } from "./usda";
-import { insertRecipeSchema, insertFoodSchema, insertIngredientAliasSchema } from "@shared/schema";
+import { insertRecipeSchema, insertFoodSchema, insertIngredientAliasSchema, insertPantryStapleSchema } from "@shared/schema";
 import { z } from "zod";
 
 export async function registerRoutes(
@@ -331,6 +331,92 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error getting canonical name:", error);
       res.status(500).json({ message: "Failed to get canonical name" });
+    }
+  });
+
+  // Pantry staples routes
+  app.get("/api/pantry-staples", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const staples = await storage.getPantryStaples(userId);
+      res.json(staples);
+    } catch (error) {
+      console.error("Error fetching pantry staples:", error);
+      res.status(500).json({ message: "Failed to fetch pantry staples" });
+    }
+  });
+
+  app.post("/api/pantry-staples", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      
+      // Normalize name: lowercase and trim
+      const name = (req.body.name || "").toLowerCase().trim();
+      
+      if (!name) {
+        return res.status(400).json({ message: "Staple name is required" });
+      }
+      
+      // Check for duplicates
+      const existingStaples = await storage.getPantryStaples(userId);
+      const isDuplicate = existingStaples.some(
+        s => s.name.toLowerCase().trim() === name
+      );
+      
+      if (isDuplicate) {
+        return res.status(400).json({ message: "This pantry staple already exists" });
+      }
+      
+      const validatedStaple = insertPantryStapleSchema.parse({
+        userId,
+        name,
+        ...(req.body.category ? { category: req.body.category } : {}),
+      });
+
+      const staple = await storage.createPantryStaple(validatedStaple);
+      res.status(201).json(staple);
+    } catch (error) {
+      console.error("Error creating pantry staple:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid staple data", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to create pantry staple" });
+    }
+  });
+
+  app.delete("/api/pantry-staples/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const stapleId = parseInt(req.params.id);
+      
+      const deleted = await storage.deletePantryStaple(stapleId, userId);
+      
+      if (!deleted) {
+        return res.status(404).json({ message: "Pantry staple not found" });
+      }
+      
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting pantry staple:", error);
+      res.status(500).json({ message: "Failed to delete pantry staple" });
+    }
+  });
+
+  // Check if ingredient is a pantry staple
+  app.get("/api/pantry-staples/check", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const name = req.query.name as string;
+      
+      if (!name) {
+        return res.status(400).json({ message: "Name query parameter required" });
+      }
+      
+      const isPantryStaple = await storage.isPantryStaple(userId, name);
+      res.json({ isPantryStaple });
+    } catch (error) {
+      console.error("Error checking pantry staple:", error);
+      res.status(500).json({ message: "Failed to check pantry staple" });
     }
   });
 

@@ -182,6 +182,30 @@ export const insertIngredientAliasSchema = createInsertSchema(ingredientAliases)
 export type InsertIngredientAlias = z.infer<typeof insertIngredientAliasSchema>;
 export type IngredientAlias = typeof ingredientAliases.$inferSelect;
 
+// Pantry staples table - user-defined items they always have on hand
+export const pantryStaples = pgTable("pantry_staples", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  name: text("name").notNull(), // Ingredient name pattern (case-insensitive match)
+  category: text("category"), // Optional category for organization
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const pantryStaplesRelations = relations(pantryStaples, ({ one }) => ({
+  user: one(users, {
+    fields: [pantryStaples.userId],
+    references: [users.id],
+  }),
+}));
+
+export const insertPantryStapleSchema = createInsertSchema(pantryStaples).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertPantryStaple = z.infer<typeof insertPantryStapleSchema>;
+export type PantryStaple = typeof pantryStaples.$inferSelect;
+
 // Extended types for frontend use
 export type RecipeWithIngredients = Recipe & {
   ingredients: (Ingredient & { food: Food | null })[];

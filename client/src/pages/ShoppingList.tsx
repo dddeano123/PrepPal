@@ -38,7 +38,7 @@ import {
 import { formatMacro } from "@/lib/macros";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import type { RecipeWithIngredients, ShoppingListItem, IngredientAlias } from "@shared/schema";
+import type { RecipeWithIngredients, ShoppingListItem, IngredientAlias, PantryStaple } from "@shared/schema";
 
 const CATEGORY_ORDER = [
   "produce",
@@ -76,8 +76,10 @@ export default function ShoppingList() {
   const [copied, setCopied] = useState(false);
   const [selectDialogOpen, setSelectDialogOpen] = useState(false);
   const [aliasDialogOpen, setAliasDialogOpen] = useState(false);
+  const [pantryDialogOpen, setPantryDialogOpen] = useState(false);
   const [newAliasCanonical, setNewAliasCanonical] = useState("");
   const [newAliasName, setNewAliasName] = useState("");
+  const [newPantryStaple, setNewPantryStaple] = useState("");
 
   const { data: recipes, isLoading } = useQuery<RecipeWithIngredients[]>({
     queryKey: ["/api/recipes"],
@@ -86,6 +88,19 @@ export default function ShoppingList() {
   const { data: aliases } = useQuery<IngredientAlias[]>({
     queryKey: ["/api/ingredient-aliases"],
   });
+
+  const { data: pantryStaples } = useQuery<PantryStaple[]>({
+    queryKey: ["/api/pantry-staples"],
+  });
+
+  // Build pantry staples lookup set
+  const pantryStaplesSet = useMemo(() => {
+    const set = new Set<string>();
+    pantryStaples?.forEach((staple) => {
+      set.add(staple.name.toLowerCase().trim());
+    });
+    return set;
+  }, [pantryStaples]);
 
   // Build alias lookup map
   const aliasMap = useMemo(() => {
@@ -136,6 +151,45 @@ export default function ShoppingList() {
     },
   });
 
+  const createPantryStapleMutation = useMutation({
+    mutationFn: async (data: { name: string }) => {
+      const response = await apiRequest("POST", "/api/pantry-staples", data);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Failed to add pantry staple");
+      }
+      return await response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/pantry-staples"] });
+      toast({
+        title: "Pantry staple added",
+        description: "This ingredient will be excluded from shopping lists.",
+      });
+      setNewPantryStaple("");
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to add pantry staple. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deletePantryStapleMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/pantry-staples/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/pantry-staples"] });
+      toast({
+        title: "Pantry staple removed",
+        description: "This ingredient will appear in shopping lists.",
+      });
+    },
+  });
+
   const shoppingItems = useMemo(() => {
     if (!recipes) return [];
 
@@ -169,7 +223,10 @@ export default function ShoppingList() {
 
     for (const recipe of selectedRecipes) {
       for (const ingredient of recipe.ingredients) {
-        if (excludePantryStaples && ingredient.isPantryStaple) continue;
+        // Check if ingredient is a pantry staple (either marked on ingredient or in user's pantry list)
+        const normalizedName = ingredient.displayName.toLowerCase().trim();
+        const isPantry = ingredient.isPantryStaple || pantryStaplesSet.has(normalizedName);
+        if (excludePantryStaples && isPantry) continue;
 
         // Use canonical name for consolidation key
         const key = getCanonicalKey(ingredient.displayName);
@@ -212,7 +269,7 @@ export default function ShoppingList() {
     }
 
     return Array.from(itemMap.values());
-  }, [recipes, selectedRecipeIds, excludePantryStaples, aliasMap, aliases]);
+  }, [recipes, selectedRecipeIds, excludePantryStaples, aliasMap, aliases, pantryStaplesSet]);
 
   const groupedItems = useMemo(() => {
     const groups: Record<string, ShoppingListItem[]> = {};
@@ -430,6 +487,81 @@ export default function ShoppingList() {
                                     <Trash2 className="h-4 w-4" />
                                   </Button>
                                 </div>
+                              ))}
+                            </div>
+                          </ScrollArea>
+                        </div>
+                      )}
+                    </DialogContent>
+                  </Dialog>
+                  <Dialog open={pantryDialogOpen} onOpenChange={setPantryDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button variant="ghost" size="sm" data-testid="button-manage-pantry">
+                        <Settings2 className="h-4 w-4 mr-1" />
+                        Pantry
+                        {pantryStaples && pantryStaples.length > 0 && (
+                          <Badge variant="secondary" size="sm" className="ml-1">
+                            {pantryStaples.length}
+                          </Badge>
+                        )}
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-md">
+                      <DialogHeader>
+                        <DialogTitle>Pantry Staples</DialogTitle>
+                      </DialogHeader>
+                      <p className="text-sm text-muted-foreground">
+                        Items you always have on hand. These will be excluded from shopping lists when the "Exclude pantry staples" option is enabled.
+                      </p>
+                      <div className="space-y-4 mt-4">
+                        <div className="flex gap-2">
+                          <Input
+                            placeholder="e.g., salt, olive oil, garlic"
+                            value={newPantryStaple}
+                            onChange={(e) => setNewPantryStaple(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && newPantryStaple.trim()) {
+                                createPantryStapleMutation.mutate({ name: newPantryStaple.trim() });
+                              }
+                            }}
+                            data-testid="input-pantry-staple"
+                          />
+                          <Button
+                            onClick={() => {
+                              if (newPantryStaple.trim()) {
+                                createPantryStapleMutation.mutate({ name: newPantryStaple.trim() });
+                              }
+                            }}
+                            disabled={!newPantryStaple.trim() || createPantryStapleMutation.isPending}
+                            data-testid="button-add-pantry-staple"
+                          >
+                            <Plus className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                      {pantryStaples && pantryStaples.length > 0 && (
+                        <div className="mt-4">
+                          <Label className="text-muted-foreground">Your pantry staples</Label>
+                          <ScrollArea className="max-h-[250px] mt-2">
+                            <div className="flex flex-wrap gap-2">
+                              {pantryStaples.map((staple) => (
+                                <Badge
+                                  key={staple.id}
+                                  variant="secondary"
+                                  className="pr-1 gap-1"
+                                  data-testid={`pantry-staple-${staple.id}`}
+                                >
+                                  {staple.name}
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-4 w-4 ml-1 p-0"
+                                    onClick={() => deletePantryStapleMutation.mutate(staple.id)}
+                                    data-testid={`button-delete-pantry-${staple.id}`}
+                                  >
+                                    <X className="h-3 w-3" />
+                                  </Button>
+                                </Badge>
                               ))}
                             </div>
                           </ScrollArea>

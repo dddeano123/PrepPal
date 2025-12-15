@@ -1,0 +1,296 @@
+1. Overview
+Problem
+
+Most nutrition apps (e.g. MyFitnessPal) are:
+
+Daily-log–oriented instead of recipe-based
+
+Inaccurate due to crowdsourced food entries
+
+Slow and cognitively noisy for people who eat the same meals repeatedly
+
+Poorly integrated with real grocery workflows
+
+Users who meal prep want:
+
+Accurate, stable macros
+
+Minimal re-entry
+
+Control over ingredient definitions
+
+A fast path from recipe → shopping
+
+Solution
+
+A recipe-centric web app that allows users to:
+
+Log recipes and cooking instructions
+
+Match ingredients to authoritative nutrition data (USDA)
+
+Automatically calculate calories and macros per serving
+
+Generate a shopping list from selected recipes
+
+(Future) Push shopping lists directly into Ralphs/Kroger carts
+
+This is not a daily food diary. It is a system for repeatable meals.
+
+2. Goals & Non-Goals
+Goals
+
+Accurate macro calculation using gram-based inputs
+
+Stable food definitions (no drift over time)
+
+Minimal friction after initial setup
+
+Clear visibility into per-serving macros
+
+Shopping list generation that reflects real cooking behavior
+
+Non-Goals (v1)
+
+Social features
+
+Barcode scanning
+
+Restaurant food tracking
+
+Wearables integration
+
+Weight tracking or coaching
+
+3. Target User
+Primary User
+
+Health-conscious individual
+
+Regularly cooks and meal preps
+
+Cares about calories/macros (cutting/bulking/maintenance)
+
+Eats a small set of repeat meals
+
+Comfortable weighing ingredients or approximating once
+
+User Characteristics
+
+Accuracy > convenience
+
+Prefers setup once, reuse forever
+
+Thinks in grams, servings, and macros
+
+Wants fewer decisions, not more features
+
+4. Core User Stories
+Recipes
+
+As a user, I want to create and save recipes with ingredients and instructions.
+
+As a user, I want to define how many servings a recipe makes.
+
+As a user, I want to scale servings and see macros update automatically.
+
+Nutrition / Macros
+
+As a user, I want to match each ingredient to a reliable nutrition source.
+
+As a user, I want macro calculations to be consistent over time.
+
+As a user, I want to clearly see when an ingredient is not properly matched.
+
+Shopping
+
+As a user, I want to generate a shopping list from one or more recipes.
+
+As a user, I want ingredients consolidated across recipes.
+
+As a user, I want to exclude pantry staples from the list.
+
+Integration (Future)
+
+As a user, I want to push my shopping list into my Ralphs/Kroger cart.
+
+5. Functional Requirements
+5.1 Recipes
+
+Create, edit, delete recipes
+
+Fields:
+
+Title
+
+Default servings
+
+Tags (optional)
+
+Instructions stored as ordered steps
+
+5.2 Ingredients
+
+Each ingredient must support:
+
+Display name (e.g. “pork shoulder”)
+
+Amount + unit (for human readability)
+
+Gram value (authoritative for macros)
+
+Linked food entry (required for macro inclusion)
+
+Unmatched ingredients:
+
+Must be visually flagged
+
+Are excluded from macro totals until matched
+
+5.3 Foods (Nutrition Data)
+
+Primary source: USDA FoodData Central
+
+Foods stored locally once selected
+
+Stored values:
+
+Calories per 100g
+
+Protein per 100g
+
+Carbs per 100g
+
+Fat per 100g
+
+Support for manual/custom foods (label-based)
+
+5.4 Macro Calculation
+
+Ingredient macros = grams × (macro_per_100g / 100)
+
+Recipe totals = sum of all ingredient macros
+
+Per-serving macros = totals ÷ servings
+
+Calculations update in real time when:
+
+Grams change
+
+Food match changes
+
+Servings change
+
+5.5 Shopping List
+
+Generated from selected recipes
+
+Ingredients consolidated by name
+
+Grouped by category (meat, pantry, dairy, etc.)
+
+Pantry exclusions toggle
+
+Export/copy supported
+
+5.6 Authentication
+
+Email/password or OAuth
+
+User data fully isolated
+
+6. Non-Functional Requirements
+Performance
+
+Macro calculations must be instant (<100ms)
+
+USDA searches cached after first selection
+
+Reliability
+
+Food entries must not change unless user edits them
+
+No silent macro changes from external sources
+
+Security
+
+API keys (USDA, future Kroger) never exposed client-side
+
+Row-level security enforced in database
+
+Accessibility
+
+Clear visual indicators for incomplete data
+
+Keyboard-navigable forms
+
+7. UX Principles
+
+Recipe-first, not diary-first
+
+No guessing — unmatched items are explicit
+
+Once-and-done setup
+
+Numbers before aesthetics
+
+Minimal screens, minimal clicks
+
+8. Out of Scope (Explicitly)
+
+MyFitnessPal API integration
+
+Crowdsourced food entries
+
+AI-based ingredient guessing
+
+Public recipe sharing (v1)
+
+9. Technical Assumptions
+
+Platform: Web app
+
+Frontend: Next.js
+
+Backend: Supabase (Postgres + Auth)
+
+Nutrition API: USDA FoodData Central
+
+Grocery integration: Kroger API (future phase)
+
+10. Milestones
+Milestone 1 — Core Engine
+
+Recipes
+
+Ingredients
+
+Food matching
+
+Macro calculation
+
+Milestone 2 — Usability
+
+Alias mapping
+
+Pantry exclusions
+
+Shopping list generation
+
+Milestone 3 — Integration
+
+Kroger/Ralphs OAuth
+
+Product matching
+
+Add-to-cart
+
+11. Success Criteria
+
+User can define a recipe once and reuse indefinitely
+
+Macros remain stable week over week
+
+Shopping list accurately reflects cooking needs
+
+App replaces MyFitnessPal for home-cooked meals

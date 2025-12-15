@@ -158,6 +158,30 @@ export const insertShoppingListSchema = createInsertSchema(shoppingLists).omit({
 export type InsertShoppingList = z.infer<typeof insertShoppingListSchema>;
 export type ShoppingList = typeof shoppingLists.$inferSelect;
 
+// Ingredient aliases table - for smarter shopping list consolidation
+export const ingredientAliases = pgTable("ingredient_aliases", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  canonicalName: text("canonical_name").notNull(), // The primary/standard name
+  aliasName: text("alias_name").notNull(), // Variant name that maps to canonical
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const ingredientAliasesRelations = relations(ingredientAliases, ({ one }) => ({
+  user: one(users, {
+    fields: [ingredientAliases.userId],
+    references: [users.id],
+  }),
+}));
+
+export const insertIngredientAliasSchema = createInsertSchema(ingredientAliases).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertIngredientAlias = z.infer<typeof insertIngredientAliasSchema>;
+export type IngredientAlias = typeof ingredientAliases.$inferSelect;
+
 // Extended types for frontend use
 export type RecipeWithIngredients = Recipe & {
   ingredients: (Ingredient & { food: Food | null })[];

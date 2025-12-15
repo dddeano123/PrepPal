@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Layout, PageHeader } from "@/components/Layout";
 import { ShoppingListEmptyState } from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
@@ -10,13 +10,20 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   ShoppingCart,
   Copy,
@@ -24,10 +31,14 @@ import {
   Plus,
   X,
   ChefHat,
+  Link2,
+  Settings2,
+  Trash2,
 } from "lucide-react";
 import { formatMacro } from "@/lib/macros";
 import { useToast } from "@/hooks/use-toast";
-import type { RecipeWithIngredients, ShoppingListItem } from "@shared/schema";
+import { queryClient, apiRequest } from "@/lib/queryClient";
+import type { RecipeWithIngredients, ShoppingListItem, IngredientAlias } from "@shared/schema";
 
 const CATEGORY_ORDER = [
   "produce",
@@ -64,9 +75,65 @@ export default function ShoppingList() {
   const [checkedItems, setCheckedItems] = useState<Set<string>>(new Set());
   const [copied, setCopied] = useState(false);
   const [selectDialogOpen, setSelectDialogOpen] = useState(false);
+  const [aliasDialogOpen, setAliasDialogOpen] = useState(false);
+  const [newAliasCanonical, setNewAliasCanonical] = useState("");
+  const [newAliasName, setNewAliasName] = useState("");
 
   const { data: recipes, isLoading } = useQuery<RecipeWithIngredients[]>({
     queryKey: ["/api/recipes"],
+  });
+
+  const { data: aliases } = useQuery<IngredientAlias[]>({
+    queryKey: ["/api/ingredient-aliases"],
+  });
+
+  // Build alias lookup map
+  const aliasMap = useMemo(() => {
+    const map = new Map<string, string>();
+    aliases?.forEach((alias) => {
+      map.set(alias.aliasName.toLowerCase().trim(), alias.canonicalName.toLowerCase().trim());
+    });
+    return map;
+  }, [aliases]);
+
+  const createAliasMutation = useMutation({
+    mutationFn: async (data: { canonicalName: string; aliasName: string }) => {
+      const response = await apiRequest("POST", "/api/ingredient-aliases", data);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Failed to create alias");
+      }
+      return await response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/ingredient-aliases"] });
+      toast({
+        title: "Alias created",
+        description: "The ingredient alias has been saved.",
+      });
+      setNewAliasCanonical("");
+      setNewAliasName("");
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to create alias. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deleteAliasMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/ingredient-aliases/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/ingredient-aliases"] });
+      toast({
+        title: "Alias deleted",
+        description: "The ingredient alias has been removed.",
+      });
+    },
   });
 
   const shoppingItems = useMemo(() => {
@@ -78,16 +145,41 @@ export default function ShoppingList() {
 
     const itemMap = new Map<string, ShoppingListItem>();
 
+    // Build reverse alias map to get canonical name for display
+    const reverseAliasMap = new Map<string, string>();
+    aliases?.forEach((alias) => {
+      // Capitalize the canonical name for display
+      const canonical = alias.canonicalName.trim();
+      const displayCanonical = canonical.charAt(0).toUpperCase() + canonical.slice(1);
+      reverseAliasMap.set(alias.aliasName.toLowerCase().trim(), displayCanonical);
+    });
+
+    // Helper function to get canonical name key
+    const getCanonicalKey = (name: string) => {
+      const normalized = name.toLowerCase().trim();
+      return aliasMap.get(normalized) || normalized;
+    };
+
+    // Helper function to get display name (capitalize canonical if alias exists)
+    const getDisplayName = (name: string) => {
+      const normalized = name.toLowerCase().trim();
+      const canonicalDisplay = reverseAliasMap.get(normalized);
+      return canonicalDisplay || name;
+    };
+
     for (const recipe of selectedRecipes) {
       for (const ingredient of recipe.ingredients) {
         if (excludePantryStaples && ingredient.isPantryStaple) continue;
 
-        const key = ingredient.displayName.toLowerCase().trim();
+        // Use canonical name for consolidation key
+        const key = getCanonicalKey(ingredient.displayName);
         const existing = itemMap.get(key);
 
         if (existing) {
           existing.totalGrams += ingredient.grams;
-          existing.recipeNames.push(recipe.title);
+          if (!existing.recipeNames.includes(recipe.title)) {
+            existing.recipeNames.push(recipe.title);
+          }
           if (ingredient.amount && ingredient.unit) {
             existing.amounts.push({
               amount: ingredient.amount,
@@ -96,8 +188,10 @@ export default function ShoppingList() {
             });
           }
         } else {
+          // Use canonical display name if ingredient is an alias
+          const displayName = getDisplayName(ingredient.displayName);
           itemMap.set(key, {
-            displayName: ingredient.displayName,
+            displayName,
             totalGrams: ingredient.grams,
             category: ingredient.category || "other",
             isPantryStaple: ingredient.isPantryStaple || false,
@@ -118,7 +212,7 @@ export default function ShoppingList() {
     }
 
     return Array.from(itemMap.values());
-  }, [recipes, selectedRecipeIds, excludePantryStaples]);
+  }, [recipes, selectedRecipeIds, excludePantryStaples, aliasMap, aliases]);
 
   const groupedItems = useMemo(() => {
     const groups: Record<string, ShoppingListItem[]> = {};
@@ -242,15 +336,107 @@ export default function ShoppingList() {
             />
           ) : (
             <div className="space-y-6">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Switch
-                    id="exclude-pantry"
-                    checked={excludePantryStaples}
-                    onCheckedChange={setExcludePantryStaples}
-                    data-testid="switch-exclude-pantry"
-                  />
-                  <Label htmlFor="exclude-pantry">Exclude pantry staples</Label>
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-4 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      id="exclude-pantry"
+                      checked={excludePantryStaples}
+                      onCheckedChange={setExcludePantryStaples}
+                      data-testid="switch-exclude-pantry"
+                    />
+                    <Label htmlFor="exclude-pantry">Exclude pantry staples</Label>
+                  </div>
+                  <Dialog open={aliasDialogOpen} onOpenChange={setAliasDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button variant="ghost" size="sm" data-testid="button-manage-aliases">
+                        <Link2 className="h-4 w-4 mr-1" />
+                        Aliases
+                        {aliases && aliases.length > 0 && (
+                          <Badge variant="secondary" size="sm" className="ml-1">
+                            {aliases.length}
+                          </Badge>
+                        )}
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-md">
+                      <DialogHeader>
+                        <DialogTitle>Ingredient Aliases</DialogTitle>
+                      </DialogHeader>
+                      <p className="text-sm text-muted-foreground">
+                        Group similar ingredients together. For example, "chicken breast boneless" can be an alias for "chicken breast".
+                      </p>
+                      <div className="space-y-4 mt-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="canonical">Base ingredient name</Label>
+                          <Input
+                            id="canonical"
+                            placeholder="e.g., chicken breast"
+                            value={newAliasCanonical}
+                            onChange={(e) => setNewAliasCanonical(e.target.value)}
+                            data-testid="input-alias-canonical"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="alias">Alias (will be grouped as above)</Label>
+                          <Input
+                            id="alias"
+                            placeholder="e.g., chicken breast boneless"
+                            value={newAliasName}
+                            onChange={(e) => setNewAliasName(e.target.value)}
+                            data-testid="input-alias-name"
+                          />
+                        </div>
+                        <Button
+                          onClick={() => {
+                            if (newAliasCanonical.trim() && newAliasName.trim()) {
+                              createAliasMutation.mutate({
+                                canonicalName: newAliasCanonical.trim(),
+                                aliasName: newAliasName.trim(),
+                              });
+                            }
+                          }}
+                          disabled={!newAliasCanonical.trim() || !newAliasName.trim() || createAliasMutation.isPending}
+                          data-testid="button-add-alias"
+                        >
+                          <Plus className="h-4 w-4 mr-1" />
+                          Add Alias
+                        </Button>
+                      </div>
+                      {aliases && aliases.length > 0 && (
+                        <div className="mt-4">
+                          <Label className="text-muted-foreground">Existing aliases</Label>
+                          <ScrollArea className="max-h-[200px] mt-2">
+                            <div className="space-y-2">
+                              {aliases.map((alias) => (
+                                <div
+                                  key={alias.id}
+                                  className="flex items-center justify-between gap-2 py-2 px-3 rounded-md bg-muted/50"
+                                  data-testid={`alias-item-${alias.id}`}
+                                >
+                                  <div className="min-w-0">
+                                    <p className="text-sm truncate">
+                                      <span className="text-muted-foreground">{alias.aliasName}</span>
+                                      <span className="mx-2 text-muted-foreground/50">&rarr;</span>
+                                      <span className="font-medium">{alias.canonicalName}</span>
+                                    </p>
+                                  </div>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => deleteAliasMutation.mutate(alias.id)}
+                                    data-testid={`button-delete-alias-${alias.id}`}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              ))}
+                            </div>
+                          </ScrollArea>
+                        </div>
+                      )}
+                    </DialogContent>
+                  </Dialog>
                 </div>
                 <span className="text-sm text-muted-foreground">
                   {shoppingItems.length} items

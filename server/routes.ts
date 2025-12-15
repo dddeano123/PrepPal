@@ -3,7 +3,7 @@ import { type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replitAuth";
 import { searchUSDAFoods } from "./usda";
-import { insertRecipeSchema, insertFoodSchema } from "@shared/schema";
+import { insertRecipeSchema, insertFoodSchema, insertIngredientAliasSchema } from "@shared/schema";
 import { z } from "zod";
 
 export async function registerRoutes(
@@ -240,6 +240,97 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error deleting shopping list:", error);
       res.status(500).json({ message: "Failed to delete shopping list" });
+    }
+  });
+
+  // Ingredient alias routes
+  app.get("/api/ingredient-aliases", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const aliases = await storage.getIngredientAliases(userId);
+      res.json(aliases);
+    } catch (error) {
+      console.error("Error fetching ingredient aliases:", error);
+      res.status(500).json({ message: "Failed to fetch ingredient aliases" });
+    }
+  });
+
+  app.post("/api/ingredient-aliases", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      
+      // Normalize names: lowercase and trim
+      const canonicalName = (req.body.canonicalName || "").toLowerCase().trim();
+      const aliasName = (req.body.aliasName || "").toLowerCase().trim();
+      
+      if (!canonicalName || !aliasName) {
+        return res.status(400).json({ message: "Both canonical name and alias name are required" });
+      }
+      
+      if (canonicalName === aliasName) {
+        return res.status(400).json({ message: "Alias cannot be the same as the canonical name" });
+      }
+      
+      // Check for duplicates
+      const existingAliases = await storage.getIngredientAliases(userId);
+      const isDuplicate = existingAliases.some(
+        a => a.aliasName.toLowerCase().trim() === aliasName
+      );
+      
+      if (isDuplicate) {
+        return res.status(400).json({ message: "This alias already exists" });
+      }
+      
+      const validatedAlias = insertIngredientAliasSchema.parse({
+        userId,
+        canonicalName,
+        aliasName,
+      });
+
+      const alias = await storage.createIngredientAlias(validatedAlias);
+      res.status(201).json(alias);
+    } catch (error) {
+      console.error("Error creating ingredient alias:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid alias data", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to create ingredient alias" });
+    }
+  });
+
+  app.delete("/api/ingredient-aliases/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const aliasId = parseInt(req.params.id);
+      
+      const deleted = await storage.deleteIngredientAlias(aliasId, userId);
+      
+      if (!deleted) {
+        return res.status(404).json({ message: "Ingredient alias not found" });
+      }
+      
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting ingredient alias:", error);
+      res.status(500).json({ message: "Failed to delete ingredient alias" });
+    }
+  });
+
+  // Get canonical name for an ingredient
+  app.get("/api/ingredient-aliases/canonical", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const name = req.query.name as string;
+      
+      if (!name) {
+        return res.status(400).json({ message: "Name query parameter required" });
+      }
+      
+      const canonicalName = await storage.getCanonicalName(userId, name);
+      res.json({ canonicalName });
+    } catch (error) {
+      console.error("Error getting canonical name:", error);
+      res.status(500).json({ message: "Failed to get canonical name" });
     }
   });
 

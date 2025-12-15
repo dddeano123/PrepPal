@@ -4,6 +4,7 @@ import {
   ingredients,
   foods,
   shoppingLists,
+  ingredientAliases,
   type User,
   type UpsertUser,
   type Recipe,
@@ -14,11 +15,13 @@ import {
   type InsertFood,
   type ShoppingList,
   type InsertShoppingList,
+  type IngredientAlias,
+  type InsertIngredientAlias,
   type RecipeWithIngredients,
   type IngredientWithFood,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, inArray, desc } from "drizzle-orm";
+import { eq, and, inArray, desc, or, ilike } from "drizzle-orm";
 
 export interface IStorage {
   // User operations (mandatory for Replit Auth)
@@ -46,6 +49,12 @@ export interface IStorage {
   getShoppingLists(userId: string): Promise<ShoppingList[]>;
   createShoppingList(list: InsertShoppingList): Promise<ShoppingList>;
   deleteShoppingList(id: number, userId: string): Promise<boolean>;
+
+  // Ingredient alias operations
+  getIngredientAliases(userId: string): Promise<IngredientAlias[]>;
+  createIngredientAlias(alias: InsertIngredientAlias): Promise<IngredientAlias>;
+  deleteIngredientAlias(id: number, userId: string): Promise<boolean>;
+  getCanonicalName(userId: string, ingredientName: string): Promise<string>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -286,6 +295,50 @@ export class DatabaseStorage implements IStorage {
       .where(and(eq(shoppingLists.id, id), eq(shoppingLists.userId, userId)))
       .returning();
     return result.length > 0;
+  }
+
+  // Ingredient alias operations
+  async getIngredientAliases(userId: string): Promise<IngredientAlias[]> {
+    return await db
+      .select()
+      .from(ingredientAliases)
+      .where(eq(ingredientAliases.userId, userId))
+      .orderBy(ingredientAliases.canonicalName);
+  }
+
+  async createIngredientAlias(aliasData: InsertIngredientAlias): Promise<IngredientAlias> {
+    const [alias] = await db
+      .insert(ingredientAliases)
+      .values(aliasData)
+      .returning();
+    return alias;
+  }
+
+  async deleteIngredientAlias(id: number, userId: string): Promise<boolean> {
+    const result = await db
+      .delete(ingredientAliases)
+      .where(and(eq(ingredientAliases.id, id), eq(ingredientAliases.userId, userId)))
+      .returning();
+    return result.length > 0;
+  }
+
+  async getCanonicalName(userId: string, ingredientName: string): Promise<string> {
+    // Normalize the input name (lowercase, trim)
+    const normalizedName = ingredientName.toLowerCase().trim();
+    
+    // Look for an alias match
+    const [alias] = await db
+      .select()
+      .from(ingredientAliases)
+      .where(
+        and(
+          eq(ingredientAliases.userId, userId),
+          ilike(ingredientAliases.aliasName, normalizedName)
+        )
+      );
+    
+    // Return canonical name if found, otherwise return original
+    return alias ? alias.canonicalName : ingredientName;
   }
 }
 

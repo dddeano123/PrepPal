@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Layout, PageHeader } from "@/components/Layout";
@@ -6,6 +6,7 @@ import { RecipeCard, RecipeCardSkeleton } from "@/components/RecipeCard";
 import { RecipesEmptyState } from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -16,15 +17,17 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Search } from "lucide-react";
+import { Plus, Search, X, Tag } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 import type { RecipeWithIngredients } from "@shared/schema";
 
 export default function Home() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [deleteRecipeId, setDeleteRecipeId] = useState<number | null>(null);
 
   const { data: recipes, isLoading } = useQuery<RecipeWithIngredients[]>({
@@ -72,10 +75,45 @@ export default function Home() {
     },
   });
 
-  const filteredRecipes = recipes?.filter((recipe) =>
-    recipe.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    recipe.tags?.some((tag) => tag.toLowerCase().includes(searchQuery.toLowerCase()))
-  );
+  // Extract all unique tags from recipes
+  const allTags = useMemo(() => {
+    if (!recipes) return [];
+    const tagSet = new Set<string>();
+    recipes.forEach((recipe) => {
+      recipe.tags?.forEach((tag) => tagSet.add(tag));
+    });
+    return Array.from(tagSet).sort();
+  }, [recipes]);
+
+  // Toggle tag selection
+  const toggleTag = (tag: string) => {
+    setSelectedTags((prev) =>
+      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
+    );
+  };
+
+  // Clear all tag filters
+  const clearTagFilters = () => {
+    setSelectedTags([]);
+  };
+
+  // Filter recipes by search query AND selected tags
+  const filteredRecipes = useMemo(() => {
+    if (!recipes) return [];
+    
+    return recipes.filter((recipe) => {
+      // Text search filter
+      const matchesSearch = searchQuery === "" ||
+        recipe.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        recipe.tags?.some((tag) => tag.toLowerCase().includes(searchQuery.toLowerCase()));
+      
+      // Tag filter - recipe must have ALL selected tags
+      const matchesTags = selectedTags.length === 0 ||
+        selectedTags.every((tag) => recipe.tags?.includes(tag));
+      
+      return matchesSearch && matchesTags;
+    });
+  }, [recipes, searchQuery, selectedTags]);
 
   const handleCreateRecipe = () => {
     navigate("/recipes/new");
@@ -114,7 +152,7 @@ export default function Home() {
         </>
       ) : recipes && recipes.length > 0 ? (
         <>
-          <div className="mb-6">
+          <div className="mb-6 space-y-4">
             <div className="relative max-w-md">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
@@ -125,6 +163,44 @@ export default function Home() {
                 data-testid="input-search-recipes"
               />
             </div>
+
+            {allTags.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm text-muted-foreground flex items-center gap-1">
+                  <Tag className="h-3 w-3" />
+                  Filter by tag:
+                </span>
+                {allTags.map((tag) => {
+                  const isSelected = selectedTags.includes(tag);
+                  return (
+                    <Badge
+                      key={tag}
+                      variant={isSelected ? "default" : "outline"}
+                      className={cn(
+                        "cursor-pointer transition-colors",
+                        isSelected && "toggle-elevate toggle-elevated"
+                      )}
+                      onClick={() => toggleTag(tag)}
+                      data-testid={`tag-filter-${tag.toLowerCase().replace(/\s+/g, "-")}`}
+                    >
+                      {tag}
+                      {isSelected && <X className="h-3 w-3 ml-1" />}
+                    </Badge>
+                  );
+                })}
+                {selectedTags.length > 0 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={clearTagFilters}
+                    className="text-muted-foreground"
+                    data-testid="button-clear-tag-filters"
+                  >
+                    Clear all
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
 
           {filteredRecipes && filteredRecipes.length > 0 ? (

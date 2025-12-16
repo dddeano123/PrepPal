@@ -1,0 +1,41 @@
+OpenAI API error details: RateLimitError: 429 You exceeded your current quota, please check your plan and billing details. For more information on this error, read the docs: https://platform.openai.com/docs/guides/error-codes/api-errors.
+    at Function.generate (/home/runner/workspace/node_modules/openai/src/core/error.ts:96:14)
+    at OpenAI.makeStatusError (/home/runner/workspace/node_modules/openai/src/client.ts:478:28)
+    at OpenAI.makeRequest (/home/runner/workspace/node_modules/openai/src/client.ts:728:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async generateCookingInstructions (/home/runner/workspace/server/openai.ts:57:22)
+    at async <anonymous> (/home/runner/workspace/server/routes.ts:593:28) {
+  status: 429,
+  headers: Headers {
+    date: 'Tue, 16 Dec 2025 21:31:11 GMT',
+    'content-type': 'application/json; charset=utf-8',
+    'content-length': '337',
+    connection: 'keep-alive',
+    vary: 'Origin',
+    'x-request-id': 'req_952109c2633e49a39d839fd0f59c7956',
+    'x-envoy-upstream-service-time': '4',
+    'x-openai-proxy-wasm': 'v0.1',
+    'cf-cache-status': 'DYNAMIC',
+    'set-cookie': '__cf_bm=5H5Gm.6X6t97UtBzWiALzZ7QY411NZmgGh_AawFJQ7I-1765920671-1.0.1.1-.y4lELwiqleq5GWr1.WaSdgql5WFeSMJHV_6fZlD7L853S6fRfgwRQCkvmVMI.ACqpVZGj.BSCfgXQUGtjky4yGVSZ4TM8pFVFyFjEEyfk8; path=/; expires=Tue, 16-Dec-25 22:01:11 GMT; domain=.api.openai.com; HttpOnly; Secure; SameSite=None, _cfuvid=u3ZYkZPMX92jsoOftcbSFetizK6TTgsLbN3u9B9Wi_I-1765920671913-0.0.1.1-604800000; path=/; domain=.api.openai.com; HttpOnly; Secure; SameSite=None',
+    'strict-transport-security': 'max-age=31536000; includeSubDomains; preload',
+    'x-content-type-options': 'nosniff',
+    server: 'cloudflare',
+    'cf-ray': '9af149470e76458d-ATL',
+    'alt-svc': 'h3=":443"; ma=86400'
+  },
+  requestID: 'req_952109c2633e49a39d839fd0f59c7956',
+  error: {
+    message: 'You exceeded your current quota, please check your plan and billing details. For more information on this error, read the docs: https://platform.openai.com/docs/guides/error-codes/api-errors.',
+    type: 'insufficient_quota',
+    param: null,
+    code: 'insufficient_quota'
+  },
+  code: 'insufficient_quota',
+  param: null,
+  type: 'insufficient_quota'
+}
+Error generating instructions: Error: Failed to generate instructions: 429 You exceeded your current quota, please check your plan and billing details. For more information on this error, read the docs: https://platform.openai.com/docs/guides/error-codes/api-errors.
+    at generateCookingInstructions (/home/runner/workspace/server/openai.ts:92:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async <anonymous> (/home/runner/workspace/server/routes.ts:593:28)
+9:31:11 PM [express] POST /api/generate-instructions 500 in 1872ms :: {"message":"Failed to generate instructions"}

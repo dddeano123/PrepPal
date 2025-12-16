@@ -148,7 +148,7 @@ export default function Home() {
     [filteredRecipes]
   );
 
-  // Calculate daily totals for currently eating recipes
+  // Calculate daily totals for currently eating recipes (per-serving macros)
   const dailyTotals = useMemo<MacroTotals>(() => {
     let totalCalories = 0;
     let totalProtein = 0;
@@ -157,10 +157,12 @@ export default function Home() {
 
     currentlyEating.forEach(recipe => {
       const recipeTotals = calculateRecipeTotals(recipe.ingredients);
-      totalCalories += recipeTotals.calories;
-      totalProtein += recipeTotals.protein;
-      totalCarbs += recipeTotals.carbs;
-      totalFat += recipeTotals.fat;
+      // Use per-serving macros since user eats one serving at a time
+      const perServing = calculatePerServingMacros(recipeTotals, recipe.servings);
+      totalCalories += perServing.calories;
+      totalProtein += perServing.protein;
+      totalCarbs += perServing.carbs;
+      totalFat += perServing.fat;
     });
 
     return {

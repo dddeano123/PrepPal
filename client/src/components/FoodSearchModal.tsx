@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   Form,
   FormControl,
@@ -26,17 +27,18 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Search, Check, Plus, Database, PenLine, ArrowLeft } from "lucide-react";
 import { SearchEmptyState } from "./EmptyState";
 import { cn } from "@/lib/utils";
-import type { Food, USDAFoodSearchResult } from "@shared/schema";
+import type { Food, OFFSearchResult } from "@shared/schema";
 import { formatMacro } from "@/lib/macros";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
 const customFoodSchema = z.object({
   name: z.string().min(1, "Name is required"),
-  caloriesPer100g: z.number().min(0, "Must be 0 or greater"),
-  proteinPer100g: z.number().min(0, "Must be 0 or greater"),
-  carbsPer100g: z.number().min(0, "Must be 0 or greater"),
-  fatPer100g: z.number().min(0, "Must be 0 or greater"),
+  servingSize: z.number().min(0).default(100),
+  calories: z.number().min(0, "Must be 0 or greater"),
+  protein: z.number().min(0, "Must be 0 or greater"),
+  carbs: z.number().min(0, "Must be 0 or greater"),
+  fat: z.number().min(0, "Must be 0 or greater"),
   category: z.string().optional(),
 });
 
@@ -45,7 +47,7 @@ type CustomFoodFormValues = z.infer<typeof customFoodSchema>;
 interface FoodSearchModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSelectFood: (food: Food | USDAFoodSearchResult) => void;
+  onSelectFood: (food: Food | OFFSearchResult) => void;
   ingredientName?: string;
 }
 
@@ -59,35 +61,89 @@ export function FoodSearchModal({
   const [activeTab, setActiveTab] = useState<"search" | "custom">("search");
   const [searchQuery, setSearchQuery] = useState(ingredientName);
   const [debouncedQuery, setDebouncedQuery] = useState(ingredientName);
+  const [useServingSize, setUseServingSize] = useState(true);
 
   const form = useForm<CustomFoodFormValues>({
     resolver: zodResolver(customFoodSchema),
     defaultValues: {
       name: ingredientName,
-      caloriesPer100g: 0,
-      proteinPer100g: 0,
-      carbsPer100g: 0,
-      fatPer100g: 0,
+      servingSize: 100,
+      calories: 0,
+      protein: 0,
+      carbs: 0,
+      fat: 0,
       category: "",
     },
   });
+
+  useEffect(() => {
+    if (open) {
+      setSearchQuery(ingredientName);
+      setDebouncedQuery(ingredientName);
+      setActiveTab("search");
+      setUseServingSize(true);
+      form.reset({
+        name: ingredientName,
+        servingSize: 100,
+        calories: 0,
+        protein: 0,
+        carbs: 0,
+        fat: 0,
+        category: "",
+      });
+    }
+  }, [open, ingredientName, form]);
+
+  const servingSize = form.watch("servingSize");
+  const calories = form.watch("calories");
+  const protein = form.watch("protein");
+  const carbs = form.watch("carbs");
+  const fat = form.watch("fat");
+
+  const convertToPer100g = (value: number, serving: number): number => {
+    if (serving <= 0) return 0;
+    return (value * 100) / serving;
+  };
+
+  const per100g = {
+    calories: convertToPer100g(calories, servingSize),
+    protein: convertToPer100g(protein, servingSize),
+    carbs: convertToPer100g(carbs, servingSize),
+    fat: convertToPer100g(fat, servingSize),
+  };
 
   const { data: savedFoods, isLoading: loadingSaved } = useQuery<Food[]>({
     queryKey: ["/api/foods"],
     enabled: open,
   });
 
-  const { data: usdaResults, isLoading: loadingUSDA } = useQuery<USDAFoodSearchResult[]>({
-    queryKey: ["/api/usda/search", debouncedQuery],
+  const { data: offResults, isLoading: loadingOFF } = useQuery<OFFSearchResult[]>({
+    queryKey: ["/api/openfoodfacts/search", debouncedQuery],
     enabled: open && debouncedQuery.length >= 2,
   });
 
   const createCustomFoodMutation = useMutation({
     mutationFn: async (data: CustomFoodFormValues) => {
-      const response = await apiRequest("POST", "/api/foods", {
-        ...data,
-        isCustom: true,
-      });
+      const payload = useServingSize
+        ? {
+            name: data.name,
+            caloriesPer100g: convertToPer100g(data.calories, data.servingSize),
+            proteinPer100g: convertToPer100g(data.protein, data.servingSize),
+            carbsPer100g: convertToPer100g(data.carbs, data.servingSize),
+            fatPer100g: convertToPer100g(data.fat, data.servingSize),
+            category: data.category,
+            isCustom: true,
+          }
+        : {
+            name: data.name,
+            caloriesPer100g: data.calories,
+            proteinPer100g: data.protein,
+            carbsPer100g: data.carbs,
+            fatPer100g: data.fat,
+            category: data.category,
+            isCustom: true,
+          };
+      const response = await apiRequest("POST", "/api/foods", payload);
       return await response.json() as Food;
     },
     onSuccess: (food) => {
@@ -122,13 +178,40 @@ export function FoodSearchModal({
     createCustomFoodMutation.mutate(data);
   };
 
+  const handleSelectOFFProduct = async (product: OFFSearchResult) => {
+    try {
+      const response = await apiRequest("POST", "/api/foods", {
+        name: product.brand ? `${product.productName} (${product.brand})` : product.productName,
+        caloriesPer100g: product.caloriesPer100g,
+        proteinPer100g: product.proteinPer100g,
+        carbsPer100g: product.carbsPer100g,
+        fatPer100g: product.fatPer100g,
+        dataType: "Open Food Facts",
+        isCustom: false,
+      });
+      const savedFood = await response.json() as Food;
+      queryClient.invalidateQueries({ queryKey: ["/api/foods"] });
+      onSelectFood(savedFood);
+      toast({
+        title: "Food added",
+        description: `${savedFood.name} has been added to your foods.`,
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to save food. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
   const filteredSavedFoods = savedFoods?.filter((food) =>
     food.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const isLoading = loadingSaved || loadingUSDA;
+  const isLoading = loadingSaved || loadingOFF;
   const hasResults = (filteredSavedFoods && filteredSavedFoods.length > 0) || 
-    (usdaResults && usdaResults.length > 0);
+    (offResults && offResults.length > 0);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -192,31 +275,26 @@ export function FoodSearchModal({
                 </section>
               )}
 
-              {usdaResults && usdaResults.length > 0 && (
+              {offResults && offResults.length > 0 && (
                 <section>
                   <h3 className="text-sm font-medium text-muted-foreground mb-3">
-                    USDA FoodData Central Results
+                    Open Food Facts Results
                   </h3>
                   <div className="space-y-2">
-                    {usdaResults.map((food) => {
-                      const calories = food.foodNutrients.find(n => n.nutrientId === 1008)?.value || 0;
-                      const protein = food.foodNutrients.find(n => n.nutrientId === 1003)?.value || 0;
-                      const carbs = food.foodNutrients.find(n => n.nutrientId === 1005)?.value || 0;
-                      const fat = food.foodNutrients.find(n => n.nutrientId === 1004)?.value || 0;
-
-                      return (
-                        <FoodResultItem
-                          key={food.fdcId}
-                          name={food.description}
-                          dataType={food.dataType}
-                          calories={calories}
-                          protein={protein}
-                          carbs={carbs}
-                          fat={fat}
-                          onSelect={() => onSelectFood(food)}
-                        />
-                      );
-                    })}
+                    {offResults.map((product) => (
+                      <FoodResultItem
+                        key={product.code}
+                        name={product.brand ? `${product.productName} (${product.brand})` : product.productName}
+                        dataType="Open Food Facts"
+                        calories={product.caloriesPer100g}
+                        protein={product.proteinPer100g}
+                        carbs={product.carbsPer100g}
+                        fat={product.fatPer100g}
+                        servingSize={product.servingSize}
+                        imageUrl={product.imageUrl}
+                        onSelect={() => handleSelectOFFProduct(product)}
+                      />
+                    ))}
                   </div>
                 </section>
               )}
@@ -263,9 +341,29 @@ export function FoodSearchModal({
 
           <TabsContent value="custom" className="flex-1 mt-4">
             <div className="bg-muted/30 rounded-md p-4 mb-4">
-              <p className="text-sm text-muted-foreground">
-                Enter nutrition facts from a food label. Values should be per 100g serving.
-              </p>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium">Enter nutrition per serving</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Enter values exactly as they appear on the nutrition label
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="serving-mode" className="text-xs">Per 100g</Label>
+                  <Switch
+                    id="serving-mode"
+                    checked={useServingSize}
+                    onCheckedChange={(checked) => {
+                      setUseServingSize(checked);
+                      if (!checked) {
+                        form.setValue("servingSize", 100);
+                      }
+                    }}
+                    data-testid="switch-serving-mode"
+                  />
+                  <Label htmlFor="serving-mode" className="text-xs">Per serving</Label>
+                </div>
+              </div>
             </div>
 
             <Form {...form}>
@@ -288,13 +386,39 @@ export function FoodSearchModal({
                   )}
                 />
 
+                {useServingSize && (
+                  <FormField
+                    control={form.control}
+                    name="servingSize"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Serving Size (grams)</FormLabel>
+                        <FormControl>
+                          <Input 
+                            type="number" 
+                            step="0.1"
+                            placeholder="28" 
+                            {...field}
+                            onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
+                            data-testid="input-serving-size"
+                          />
+                        </FormControl>
+                        <p className="text-xs text-muted-foreground">
+                          Enter the serving size from the label (e.g., 28g, 113g, 240g)
+                        </p>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
+
                 <div className="grid grid-cols-2 gap-4">
                   <FormField
                     control={form.control}
-                    name="caloriesPer100g"
+                    name="calories"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Calories (per 100g)</FormLabel>
+                        <FormLabel>Calories {useServingSize ? "(per serving)" : "(per 100g)"}</FormLabel>
                         <FormControl>
                           <Input 
                             type="number" 
@@ -312,10 +436,10 @@ export function FoodSearchModal({
 
                   <FormField
                     control={form.control}
-                    name="proteinPer100g"
+                    name="protein"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Protein (g per 100g)</FormLabel>
+                        <FormLabel>Protein (g) {useServingSize ? "per serving" : "per 100g"}</FormLabel>
                         <FormControl>
                           <Input 
                             type="number" 
@@ -333,10 +457,10 @@ export function FoodSearchModal({
 
                   <FormField
                     control={form.control}
-                    name="carbsPer100g"
+                    name="carbs"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Carbs (g per 100g)</FormLabel>
+                        <FormLabel>Carbs (g) {useServingSize ? "per serving" : "per 100g"}</FormLabel>
                         <FormControl>
                           <Input 
                             type="number" 
@@ -354,10 +478,10 @@ export function FoodSearchModal({
 
                   <FormField
                     control={form.control}
-                    name="fatPer100g"
+                    name="fat"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Fat (g per 100g)</FormLabel>
+                        <FormLabel>Fat (g) {useServingSize ? "per serving" : "per 100g"}</FormLabel>
                         <FormControl>
                           <Input 
                             type="number" 
@@ -373,6 +497,30 @@ export function FoodSearchModal({
                     )}
                   />
                 </div>
+
+                {useServingSize && servingSize > 0 && (calories > 0 || protein > 0 || carbs > 0 || fat > 0) && (
+                  <div className="bg-muted/50 rounded-md p-3 border border-dashed">
+                    <p className="text-xs font-medium text-muted-foreground mb-2">Converted to per 100g (stored values):</p>
+                    <div className="grid grid-cols-4 gap-2 text-sm">
+                      <div className="text-center">
+                        <span className="font-mono font-medium">{Math.round(per100g.calories)}</span>
+                        <span className="text-xs text-muted-foreground block">cal</span>
+                      </div>
+                      <div className="text-center">
+                        <span className="font-mono font-medium">{per100g.protein.toFixed(1)}g</span>
+                        <span className="text-xs text-muted-foreground block">protein</span>
+                      </div>
+                      <div className="text-center">
+                        <span className="font-mono font-medium">{per100g.carbs.toFixed(1)}g</span>
+                        <span className="text-xs text-muted-foreground block">carbs</span>
+                      </div>
+                      <div className="text-center">
+                        <span className="font-mono font-medium">{per100g.fat.toFixed(1)}g</span>
+                        <span className="text-xs text-muted-foreground block">fat</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 <div className="flex justify-end gap-2 pt-4">
                   <Button 
@@ -408,6 +556,8 @@ interface FoodResultItemProps {
   protein: number;
   carbs: number;
   fat: number;
+  servingSize?: string | null;
+  imageUrl?: string | null;
   onSelect: () => void;
 }
 
@@ -418,6 +568,8 @@ function FoodResultItem({
   protein,
   carbs,
   fat,
+  servingSize,
+  imageUrl,
   onSelect,
 }: FoodResultItemProps) {
   return (
@@ -426,11 +578,25 @@ function FoodResultItem({
       onClick={onSelect}
       data-testid={`food-result-${name.toLowerCase().replace(/\s+/g, "-").slice(0, 30)}`}
     >
-      <div className="flex-1 min-w-0 mr-4">
-        <p className="font-medium truncate">{name}</p>
-        <Badge variant="outline" size="sm" className="mt-1">
-          {dataType}
-        </Badge>
+      <div className="flex items-center gap-3 flex-1 min-w-0 mr-4">
+        {imageUrl && (
+          <img
+            src={imageUrl}
+            alt={name}
+            className="w-10 h-10 rounded object-cover flex-shrink-0"
+          />
+        )}
+        <div className="min-w-0">
+          <p className="font-medium truncate">{name}</p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Badge variant="outline" size="sm">
+              {dataType}
+            </Badge>
+            {servingSize && (
+              <span className="text-xs text-muted-foreground">{servingSize}</span>
+            )}
+          </div>
+        </div>
       </div>
       <div className="flex items-center gap-4 text-sm">
         <div className="text-center min-w-[50px]">

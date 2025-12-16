@@ -25,7 +25,7 @@ import { Plus, Trash2, Save, X, GripVertical } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { calculateRecipeTotals } from "@/lib/macros";
-import type { RecipeWithIngredients, Food, USDAFoodSearchResult } from "@shared/schema";
+import type { RecipeWithIngredients, Food, OFFSearchResult } from "@shared/schema";
 
 interface KrogerProduct {
   productId: string;
@@ -178,7 +178,7 @@ export default function RecipeForm() {
     setFoodSearchOpen(true);
   };
 
-  const handleSelectFood = async (food: Food | USDAFoodSearchResult) => {
+  const handleSelectFood = async (food: Food | OFFSearchResult) => {
     if (editingIngredientIndex === null) return;
 
     if ("id" in food) {
@@ -187,159 +187,84 @@ export default function RecipeForm() {
         food: food,
       });
     } else {
-      try {
-        const response = await apiRequest("POST", "/api/foods", {
-          fdcId: food.fdcId,
-          name: food.description,
-          dataType: food.dataType,
-          caloriesPer100g: food.foodNutrients.find((n) => n.nutrientId === 1008)?.value || 0,
-          proteinPer100g: food.foodNutrients.find((n) => n.nutrientId === 1003)?.value || 0,
-          carbsPer100g: food.foodNutrients.find((n) => n.nutrientId === 1005)?.value || 0,
-          fatPer100g: food.foodNutrients.find((n) => n.nutrientId === 1004)?.value || 0,
-        });
-
-        const savedFood: Food = await response.json();
-        updateIngredient(editingIngredientIndex, {
-          foodId: savedFood.id,
-          food: savedFood,
-        });
-
-        queryClient.invalidateQueries({ queryKey: ["/api/foods"] });
-      } catch {
-        toast({
-          title: "Error",
-          description: "Failed to save food. Please try again.",
-          variant: "destructive",
-        });
-      }
+      toast({
+        title: "Error",
+        description: "Please select a saved food.",
+        variant: "destructive",
+      });
     }
 
     setFoodSearchOpen(false);
     setEditingIngredientIndex(null);
   };
 
-  // Handle Kroger product selection - auto-search USDA and match nutrition
+  // Handle Kroger product selection - auto-search Open Food Facts and match nutrition
   const handleKrogerProductSelect = useCallback(async (index: number, product: KrogerProduct) => {
-    // Update ingredient name with product description
     updateIngredient(index, { 
       displayName: product.description,
       krogerProductId: product.productId,
     });
 
-    // Set auto-matching state
     setAutoMatchingIndices(prev => new Set(prev).add(index));
 
     try {
-      // Common brand names to remove from search
-      const commonBrands = [
-        'kroger', 'simple truth', 'private selection', 'heritage farm',
-        'comforts', 'big k', 'check this out', 'psst', 'lala', 'borden',
-        'organic', 'natural', 'fresh', 'premium', 'select', 'choice',
-        'usda', 'certified', 'angus', 'grass fed', 'free range', 'cage free',
-        'all natural', 'no antibiotics', 'hormone free', 'boneless', 'skinless'
-      ];
-      
-      // Helper to clean product description for USDA search
       const cleanDescription = (desc: string): string => {
+        const commonBrands = [
+          'kroger', 'simple truth', 'private selection', 'heritage farm',
+          'comforts', 'big k', 'check this out', 'psst', 'organic', 'natural'
+        ];
         let cleaned = desc.toLowerCase();
-        // Remove brand names
         commonBrands.forEach(brand => {
           cleaned = cleaned.replace(new RegExp(brand, 'gi'), '');
         });
-        // Remove size/weight info
         cleaned = cleaned.replace(/\d+(\.\d+)?\s*(oz|lb|lbs|ct|pack|count|fl\s*oz|ml|g|kg|each|per|pound)/gi, '');
-        // Remove special characters except spaces
         cleaned = cleaned.replace(/[^a-zA-Z\s]/g, ' ');
-        // Remove extra spaces
         cleaned = cleaned.replace(/\s+/g, ' ').trim();
         return cleaned;
       };
       
-      // Generate multiple search term variations to try
-      const generateSearchTerms = (desc: string): string[] => {
-        const cleaned = cleanDescription(desc);
-        const words = cleaned.split(' ').filter(w => w.length > 2);
-        
-        const terms: string[] = [];
-        
-        // Try full cleaned description (first 4 words)
-        if (words.length > 0) {
-          terms.push(words.slice(0, 4).join(' '));
-        }
-        
-        // Try first 2 words (more generic)
-        if (words.length >= 2) {
-          terms.push(words.slice(0, 2).join(' '));
-        }
-        
-        // Try just the first word (most generic, e.g., "chicken", "beef")
-        if (words.length >= 1) {
-          terms.push(words[0]);
-        }
-        
-        // Try last 2 meaningful words (sometimes the food type is at the end)
-        if (words.length >= 3) {
-          terms.push(words.slice(-2).join(' '));
-        }
-        
-        // Remove duplicates
-        return Array.from(new Set(terms)).filter(t => t.length >= 3);
-      };
+      const searchTerm = cleanDescription(product.description).split(' ').slice(0, 3).join(' ');
       
-      const searchTermsList = generateSearchTerms(product.description);
-      
-      // Try each search term until we find a match
-      let bestMatch = null;
-      for (const searchTerm of searchTermsList) {
-        const response = await fetch(`/api/usda/search?query=${encodeURIComponent(searchTerm)}&pageSize=5`);
-        
-        if (!response.ok) {
-          continue;
-        }
-
-        const data = await response.json();
-        
-        if (data.foods && data.foods.length > 0) {
-          // Found results - pick the first one
-          bestMatch = data.foods[0];
-          break;
-        }
+      if (searchTerm.length < 3) {
+        toast({
+          title: "No nutrition match found",
+          description: "You can manually link this ingredient using the Match button.",
+          variant: "default",
+        });
+        return;
       }
+
+      const response = await fetch(`/api/openfoodfacts/search?q=${encodeURIComponent(searchTerm)}`);
       
-      if (bestMatch) {
-        // Extract nutrition data with validation
-        const getNutrient = (id: number) => 
-          bestMatch.foodNutrients?.find((n: any) => n.nutrientId === id)?.value;
+      if (!response.ok) {
+        throw new Error('Search failed');
+      }
+
+      const results: OFFSearchResult[] = await response.json();
+      
+      if (results.length > 0) {
+        const bestMatch = results[0];
         
-        const calories = getNutrient(1008);
-        const protein = getNutrient(1003);
-        const carbs = getNutrient(1005);
-        const fat = getNutrient(1004);
-        
-        // Validate that we have at least calories data
-        if (calories === undefined || calories === null) {
+        if (bestMatch.caloriesPer100g === 0 && bestMatch.proteinPer100g === 0) {
           toast({
             title: "Incomplete nutrition data",
-            description: "USDA data is missing calories. Please manually link this ingredient.",
+            description: "Please manually link this ingredient.",
             variant: "default",
           });
           return;
         }
         
-        // Save the food to our database
         const saveResponse = await apiRequest("POST", "/api/foods", {
-          fdcId: bestMatch.fdcId,
-          name: bestMatch.description,
-          dataType: bestMatch.dataType || 'SR Legacy',
-          caloriesPer100g: calories || 0,
-          proteinPer100g: protein || 0,
-          carbsPer100g: carbs || 0,
-          fatPer100g: fat || 0,
+          name: bestMatch.brand ? `${bestMatch.productName} (${bestMatch.brand})` : bestMatch.productName,
+          dataType: 'Open Food Facts',
+          caloriesPer100g: bestMatch.caloriesPer100g,
+          proteinPer100g: bestMatch.proteinPer100g,
+          carbsPer100g: bestMatch.carbsPer100g,
+          fatPer100g: bestMatch.fatPer100g,
         });
 
         const savedFood: Food = await saveResponse.json();
         
-        // Update ingredient with matched food
         updateIngredient(index, {
           foodId: savedFood.id,
           food: savedFood,
@@ -349,12 +274,12 @@ export default function RecipeForm() {
         
         toast({
           title: "Nutrition matched",
-          description: `Matched "${product.description}" to USDA: ${savedFood.name}`,
+          description: `Matched "${product.description}" to: ${savedFood.name}`,
         });
       } else {
         toast({
           title: "No nutrition match found",
-          description: "You can manually link this ingredient to USDA data.",
+          description: "You can manually link this ingredient using the Match button.",
           variant: "default",
         });
       }
@@ -362,11 +287,10 @@ export default function RecipeForm() {
       console.error('Auto-match error:', error);
       toast({
         title: "Auto-match failed",
-        description: "You can manually link this ingredient using the search button.",
+        description: "You can manually link this ingredient using the Match button.",
         variant: "destructive",
       });
     } finally {
-      // Remove from auto-matching state
       setAutoMatchingIndices(prev => {
         const next = new Set(prev);
         next.delete(index);

@@ -358,6 +358,19 @@ export type USDAFoodSearchResult = {
   }[];
 };
 
+// Open Food Facts API response types
+export type OFFSearchResult = {
+  code: string;
+  productName: string;
+  brand: string | null;
+  caloriesPer100g: number;
+  proteinPer100g: number;
+  carbsPer100g: number;
+  fatPer100g: number;
+  servingSize: string | null;
+  imageUrl: string | null;
+};
+
 // Shopping list item type for frontend
 export type ShoppingListItem = {
   displayName: string;

@@ -278,9 +278,23 @@ export default function Foods() {
                           </div>
                         </TableCell>
                         <TableCell className="text-center">
-                          <Badge variant="secondary" className="text-xs">
-                            {food.dataType || "Custom"}
-                          </Badge>
+                          {food.dataType === "Open Food Facts" && food.offProductCode ? (
+                            <a
+                              href={`https://world.openfoodfacts.org/product/${food.offProductCode}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-block"
+                              data-testid={`link-off-source-${food.id}`}
+                            >
+                              <Badge variant="secondary" className="text-xs cursor-pointer hover:bg-secondary/80">
+                                {food.dataType}
+                              </Badge>
+                            </a>
+                          ) : (
+                            <Badge variant="secondary" className="text-xs">
+                              {food.dataType || "Custom"}
+                            </Badge>
+                          )}
                         </TableCell>
                         <TableCell className="text-right font-mono">{Math.round(food.caloriesPer100g ?? 0)}</TableCell>
                         <TableCell className="text-right font-mono">{food.proteinPer100g?.toFixed(1) ?? "0.0"}</TableCell>

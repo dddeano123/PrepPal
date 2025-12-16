@@ -1,12 +1,15 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
-import { ChevronDown, ChevronUp, Package, Wrench } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { ChevronDown, ChevronUp, Package, Wrench, Plus } from "lucide-react";
 import { useState } from "react";
+import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import type { PantryStaple, Tool } from "@shared/schema";
 
 interface RecipeReferenceSidebarProps {
@@ -15,8 +18,10 @@ interface RecipeReferenceSidebarProps {
 }
 
 export function RecipeReferenceSidebar({ onAddPantryStaple, onAddTool }: RecipeReferenceSidebarProps) {
+  const { toast } = useToast();
   const [pantryOpen, setPantryOpen] = useState(true);
   const [toolsOpen, setToolsOpen] = useState(true);
+  const [newPantryStaple, setNewPantryStaple] = useState("");
 
   const { data: pantryStaples, isLoading: loadingPantry } = useQuery<PantryStaple[]>({
     queryKey: ["/api/pantry-staples"],
@@ -25,6 +30,32 @@ export function RecipeReferenceSidebar({ onAddPantryStaple, onAddTool }: RecipeR
   const { data: userTools, isLoading: loadingTools } = useQuery<Tool[]>({
     queryKey: ["/api/tools"],
   });
+
+  const createPantryStapleMutation = useMutation({
+    mutationFn: async (name: string) => {
+      return await apiRequest("POST", "/api/pantry-staples", { name });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/pantry-staples"] });
+      toast({ title: "Pantry staple added", description: "Added to your pantry staples." });
+      setNewPantryStaple("");
+    },
+    onError: (error: any) => {
+      toast({ 
+        title: "Error", 
+        description: error.message || "Failed to add pantry staple.", 
+        variant: "destructive" 
+      });
+    },
+  });
+
+  const handleAddPantryStaple = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = newPantryStaple.trim();
+    if (trimmed) {
+      createPantryStapleMutation.mutate(trimmed);
+    }
+  };
 
   return (
     <Card className="sticky top-4">
@@ -52,33 +83,55 @@ export function RecipeReferenceSidebar({ onAddPantryStaple, onAddTool }: RecipeR
             </Button>
           </CollapsibleTrigger>
           <CollapsibleContent>
-            <ScrollArea className="h-[150px] mt-2">
-              {loadingPantry ? (
-                <div className="space-y-2 px-2">
-                  <Skeleton className="h-6 w-full" />
-                  <Skeleton className="h-6 w-3/4" />
-                  <Skeleton className="h-6 w-5/6" />
-                </div>
-              ) : pantryStaples && pantryStaples.length > 0 ? (
-                <div className="flex flex-wrap gap-1 px-2">
-                  {pantryStaples.map((staple) => (
-                    <Badge
-                      key={staple.id}
-                      variant="outline"
-                      className="text-xs cursor-pointer"
-                      onClick={() => onAddPantryStaple?.(staple.name)}
-                      data-testid={`badge-pantry-${staple.id}`}
-                    >
-                      {staple.name}
-                    </Badge>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-xs text-muted-foreground px-2">
-                  No pantry staples defined. Add ingredients as pantry staples from your recipes.
-                </p>
-              )}
-            </ScrollArea>
+            <div className="mt-2 space-y-2">
+              <form onSubmit={handleAddPantryStaple} className="flex gap-1 px-2">
+                <Input
+                  type="text"
+                  placeholder="Add staple (e.g., Salt)"
+                  value={newPantryStaple}
+                  onChange={(e) => setNewPantryStaple(e.target.value)}
+                  className="h-8 text-xs"
+                  data-testid="input-new-pantry-staple"
+                />
+                <Button
+                  type="submit"
+                  size="sm"
+                  variant="outline"
+                  className="h-8 px-2"
+                  disabled={createPantryStapleMutation.isPending || !newPantryStaple.trim()}
+                  data-testid="button-add-pantry-staple"
+                >
+                  <Plus className="h-3 w-3" />
+                </Button>
+              </form>
+              <ScrollArea className="h-[120px]">
+                {loadingPantry ? (
+                  <div className="space-y-2 px-2">
+                    <Skeleton className="h-6 w-full" />
+                    <Skeleton className="h-6 w-3/4" />
+                    <Skeleton className="h-6 w-5/6" />
+                  </div>
+                ) : pantryStaples && pantryStaples.length > 0 ? (
+                  <div className="flex flex-wrap gap-1 px-2">
+                    {pantryStaples.map((staple) => (
+                      <Badge
+                        key={staple.id}
+                        variant="outline"
+                        className="text-xs cursor-pointer hover:bg-accent"
+                        onClick={() => onAddPantryStaple?.(staple.name)}
+                        data-testid={`badge-pantry-${staple.id}`}
+                      >
+                        {staple.name}
+                      </Badge>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground px-2">
+                    No pantry staples yet. Add one above.
+                  </p>
+                )}
+              </ScrollArea>
+            </div>
           </CollapsibleContent>
         </Collapsible>
 

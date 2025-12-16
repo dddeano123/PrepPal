@@ -94,6 +94,18 @@ export function FoodSearchModal({
     }
   }, [open, ingredientName, form]);
 
+  useEffect(() => {
+    const trimmed = searchQuery.trim();
+    if (trimmed.length >= 2) {
+      const timer = setTimeout(() => {
+        setDebouncedQuery(trimmed);
+      }, 300);
+      return () => clearTimeout(timer);
+    } else {
+      setDebouncedQuery("");
+    }
+  }, [searchQuery]);
+
   const servingSize = form.watch("servingSize");
   const calories = form.watch("calories");
   const protein = form.watch("protein");

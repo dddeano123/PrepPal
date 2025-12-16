@@ -469,7 +469,7 @@ export default function RecipeForm() {
             </CardHeader>
             <CardContent>
               {ingredients.length > 0 ? (
-                <div className="border rounded-md overflow-hidden">
+                <div className="border rounded-md overflow-visible">
                   <IngredientTableHeader />
                   <div className="divide-y">
                     {ingredients.map((ingredient, index) => (

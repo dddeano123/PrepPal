@@ -77,7 +77,7 @@ export function IngredientRow({
   return (
     <div
       className={cn(
-        "grid grid-cols-12 gap-2 items-center p-3 rounded-md border transition-all",
+        "grid grid-cols-12 gap-2 items-center p-3 rounded-md border transition-all overflow-visible",
         !isMatched && !isAutoMatching && "border-amber-300 bg-amber-50/50 dark:border-amber-700 dark:bg-amber-950/20",
         isAutoMatching && "border-blue-300 bg-blue-50/50 dark:border-blue-700 dark:bg-blue-950/20",
         isMatched && "border-border bg-card",
@@ -89,7 +89,7 @@ export function IngredientRow({
         <GripVertical className="h-4 w-4 text-muted-foreground cursor-grab" />
       </div>
 
-      <div className="col-span-3">
+      <div className="col-span-3 overflow-visible">
         {onKrogerProductSelect ? (
           <IngredientAutocomplete
             value={ingredient.displayName}

@@ -1,10 +1,12 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { IngredientAutocomplete } from "@/components/IngredientAutocomplete";
 import { GripVertical, Search, Trash2, AlertTriangle, Link2, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatMacro, calculateIngredientMacros } from "@/lib/macros";
 import type { Food } from "@shared/schema";
+import { UNIT_CONVERSIONS, UNIT_LABELS, UNIT_CATEGORIES } from "@shared/schema";
 
 interface KrogerProduct {
   productId: string;
@@ -114,7 +116,20 @@ export function IngredientRow({
         <Input
           type="number"
           value={ingredient.amount || ""}
-          onChange={(e) => onUpdate({ amount: parseFloat(e.target.value) || 0 })}
+          onChange={(e) => {
+            const newAmount = parseFloat(e.target.value) || 0;
+            const conversionFactor = ingredient.unit ? UNIT_CONVERSIONS[ingredient.unit as keyof typeof UNIT_CONVERSIONS] : 1;
+            // Only auto-calculate grams if conversion factor exists and is > 0
+            if (conversionFactor && conversionFactor > 0) {
+              onUpdate({ 
+                amount: newAmount,
+                grams: Math.round(newAmount * conversionFactor * 100) / 100
+              });
+            } else {
+              // For count-based units (piece, slice, etc), preserve existing grams
+              onUpdate({ amount: newAmount });
+            }
+          }}
           placeholder="Amt"
           className="h-9 text-center"
           data-testid={`input-ingredient-amount-${index}`}
@@ -122,13 +137,41 @@ export function IngredientRow({
       </div>
 
       <div className="col-span-1">
-        <Input
-          value={ingredient.unit || ""}
-          onChange={(e) => onUpdate({ unit: e.target.value })}
-          placeholder="Unit"
-          className="h-9"
-          data-testid={`input-ingredient-unit-${index}`}
-        />
+        <Select
+          value={ingredient.unit || "g"}
+          onValueChange={(value) => {
+            const conversionFactor = UNIT_CONVERSIONS[value as keyof typeof UNIT_CONVERSIONS];
+            // Only auto-calculate grams if conversion factor exists and is > 0
+            if (conversionFactor && conversionFactor > 0) {
+              const newGrams = (ingredient.amount || 0) * conversionFactor;
+              onUpdate({ 
+                unit: value,
+                grams: Math.round(newGrams * 100) / 100
+              });
+            } else {
+              // For count-based units, just update unit and keep existing grams
+              onUpdate({ unit: value });
+            }
+          }}
+        >
+          <SelectTrigger className="h-9" data-testid={`select-ingredient-unit-${index}`}>
+            <SelectValue placeholder="Unit" />
+          </SelectTrigger>
+          <SelectContent>
+            {Object.entries(UNIT_CATEGORIES).map(([category, units]) => (
+              <div key={category}>
+                <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  {category}
+                </div>
+                {units.map((unit) => (
+                  <SelectItem key={unit} value={unit}>
+                    {UNIT_LABELS[unit as keyof typeof UNIT_LABELS]}
+                  </SelectItem>
+                ))}
+              </div>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="col-span-1">

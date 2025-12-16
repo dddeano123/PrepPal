@@ -58,9 +58,11 @@ export default function RecipeForm() {
 
   const [ingredients, setIngredients] = useState<LocalIngredient[]>([]);
   const [instructions, setInstructions] = useState<string[]>([]);
+  const [tools, setTools] = useState<string[]>([]);
   const [foodSearchOpen, setFoodSearchOpen] = useState(false);
   const [editingIngredientIndex, setEditingIngredientIndex] = useState<number | null>(null);
   const [autoMatchingIndices, setAutoMatchingIndices] = useState<Set<number>>(new Set());
+  const [draggedInstructionIndex, setDraggedInstructionIndex] = useState<number | null>(null);
 
   const { data: recipe, isLoading } = useQuery<RecipeWithIngredients>({
     queryKey: ["/api/recipes", id],
@@ -86,12 +88,14 @@ export default function RecipeForm() {
         tags: recipe.tags?.join(", ") || "",
       });
       setIngredients(
-        recipe.ingredients.map((ing) => ({
+        recipe.ingredients.map((ing, index) => ({
           ...ing,
           localId: crypto.randomUUID(),
+          sortOrder: ing.sortOrder ?? index,
         }))
       );
       setInstructions(recipe.instructions || []);
+      setTools(recipe.tools?.map(t => t.name) || []);
     }
   }, [recipe, form]);
 
@@ -113,6 +117,7 @@ export default function RecipeForm() {
           isPantryStaple: ing.isPantryStaple,
           sortOrder: index,
         })),
+        tools: tools.filter(Boolean).map((name, index) => ({ name, sortOrder: index })),
       };
 
       if (isEditing) {
@@ -384,6 +389,38 @@ export default function RecipeForm() {
     setInstructions((prev) => prev.filter((_, i) => i !== index));
   };
 
+  const handleInstructionDragStart = (index: number) => {
+    setDraggedInstructionIndex(index);
+  };
+
+  const handleInstructionDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    if (draggedInstructionIndex === null || draggedInstructionIndex === index) return;
+    
+    const newInstructions = [...instructions];
+    const draggedItem = newInstructions[draggedInstructionIndex];
+    newInstructions.splice(draggedInstructionIndex, 1);
+    newInstructions.splice(index, 0, draggedItem);
+    setInstructions(newInstructions);
+    setDraggedInstructionIndex(index);
+  };
+
+  const handleInstructionDragEnd = () => {
+    setDraggedInstructionIndex(null);
+  };
+
+  const addTool = () => {
+    setTools((prev) => [...prev, ""]);
+  };
+
+  const updateTool = (index: number, value: string) => {
+    setTools((prev) => prev.map((tool, i) => (i === index ? value : tool)));
+  };
+
+  const deleteTool = (index: number) => {
+    setTools((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const onSubmit = (data: RecipeFormValues) => {
     // Prevent submission while auto-matching is in progress
     if (autoMatchingIndices.size > 0) {
@@ -577,9 +614,19 @@ export default function RecipeForm() {
               {instructions.length > 0 ? (
                 <div className="space-y-3">
                   {instructions.map((step, index) => (
-                    <div key={index} className="flex items-start gap-3">
-                      <div className="flex-shrink-0 w-7 h-7 rounded-full bg-primary/10 text-primary font-semibold text-sm flex items-center justify-center mt-2">
-                        {index + 1}
+                    <div
+                      key={index}
+                      className={`flex items-start gap-3 ${draggedInstructionIndex === index ? "opacity-50" : ""}`}
+                      draggable
+                      onDragStart={() => handleInstructionDragStart(index)}
+                      onDragOver={(e) => handleInstructionDragOver(e, index)}
+                      onDragEnd={handleInstructionDragEnd}
+                    >
+                      <div className="flex-shrink-0 flex items-center gap-1 mt-2">
+                        <GripVertical className="h-4 w-4 text-muted-foreground cursor-grab" />
+                        <div className="w-7 h-7 rounded-full bg-primary/10 text-primary font-semibold text-sm flex items-center justify-center">
+                          {index + 1}
+                        </div>
                       </div>
                       <Textarea
                         value={step}
@@ -611,6 +658,65 @@ export default function RecipeForm() {
                   >
                     <Plus className="h-4 w-4 mr-2" />
                     Add First Step
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-2">
+              <CardTitle>Cooking Tools</CardTitle>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={addTool}
+                data-testid="button-add-tool"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Tool
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {tools.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {tools.map((tool, index) => (
+                    <div
+                      key={index}
+                      className="flex items-center gap-2 bg-muted/50 rounded-md px-3 py-2"
+                    >
+                      <Input
+                        value={tool}
+                        onChange={(e) => updateTool(index, e.target.value)}
+                        placeholder="e.g., Rice cooker, Pan"
+                        className="h-8 w-40 bg-transparent border-0 focus-visible:ring-0"
+                        data-testid={`input-tool-${index}`}
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6"
+                        onClick={() => deleteTool(index)}
+                        data-testid={`button-delete-tool-${index}`}
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground border-2 border-dashed rounded-md">
+                  <p className="mb-2">No cooking tools added yet</p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={addTool}
+                    data-testid="button-add-first-tool"
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add First Tool
                   </Button>
                 </div>
               )}

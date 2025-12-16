@@ -9,7 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ThemeToggle } from "./ThemeToggle";
-import { ChefHat, ShoppingCart, LogOut, User } from "lucide-react";
+import { ChefHat, ShoppingCart, LogOut, User, Package } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
 
@@ -19,6 +19,7 @@ export function Header() {
 
   const navItems = [
     { href: "/", label: "Recipes", icon: ChefHat },
+    { href: "/foods", label: "Foods", icon: Package },
     { href: "/shopping-list", label: "Shopping List", icon: ShoppingCart },
   ];
 

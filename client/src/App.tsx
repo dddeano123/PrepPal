@@ -9,6 +9,7 @@ import Home from "@/pages/Home";
 import RecipeDetail from "@/pages/RecipeDetail";
 import RecipeForm from "@/pages/RecipeForm";
 import ShoppingList from "@/pages/ShoppingList";
+import Foods from "@/pages/Foods";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -35,6 +36,7 @@ function Router() {
           <Route path="/recipes/new" component={RecipeForm} />
           <Route path="/recipes/:id" component={RecipeDetail} />
           <Route path="/recipes/:id/edit" component={RecipeForm} />
+          <Route path="/foods" component={Foods} />
           <Route path="/shopping-list" component={ShoppingList} />
         </>
       )}

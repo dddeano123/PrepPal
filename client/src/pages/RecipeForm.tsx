@@ -8,6 +8,7 @@ import { Layout, PageHeader } from "@/components/Layout";
 import { IngredientRow, IngredientTableHeader, IngredientTotalsRow, type EditableIngredient } from "@/components/IngredientRow";
 import { FoodSearchModal } from "@/components/FoodSearchModal";
 import { ToolAutocomplete } from "@/components/ToolAutocomplete";
+import { RecipeReferenceSidebar } from "@/components/RecipeReferenceSidebar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -415,9 +416,10 @@ export default function RecipeForm() {
         ]}
       />
 
-      <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-          <Card>
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            <Card>
             <CardHeader>
               <CardTitle>Basic Info</CardTitle>
             </CardHeader>
@@ -698,8 +700,36 @@ export default function RecipeForm() {
                 : "Create Recipe"}
             </Button>
           </div>
-        </form>
-      </Form>
+          </form>
+        </Form>
+
+        <div className="hidden lg:block">
+          <RecipeReferenceSidebar
+            onAddPantryStaple={(name) => {
+              setIngredients((prev) => [
+                ...prev,
+                {
+                  localId: crypto.randomUUID(),
+                  displayName: name,
+                  amount: null,
+                  unit: null,
+                  grams: 0,
+                  foodId: null,
+                  food: null,
+                  category: null,
+                  isPantryStaple: true,
+                  sortOrder: prev.length,
+                },
+              ]);
+            }}
+            onAddTool={(name) => {
+              if (!tools.includes(name)) {
+                setTools((prev) => [...prev, name]);
+              }
+            }}
+          />
+        </div>
+      </div>
 
       <FoodSearchModal
         open={foodSearchOpen}

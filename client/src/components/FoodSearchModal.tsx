@@ -199,6 +199,7 @@ export function FoodSearchModal({
         carbsPer100g: product.carbsPer100g,
         fatPer100g: product.fatPer100g,
         dataType: "Open Food Facts",
+        offProductCode: product.code,
         isCustom: false,
       });
       const savedFood = await response.json() as Food;

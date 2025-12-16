@@ -251,6 +251,18 @@ export default function Foods() {
                         <TableCell>
                           <div>
                             <div className="font-medium">{food.name}</div>
+                            {food.offProductCode && (
+                              <a
+                                href={`https://world.openfoodfacts.org/product/${food.offProductCode}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1 mt-0.5 hover:underline"
+                                data-testid={`link-off-${food.id}`}
+                              >
+                                View on Open Food Facts
+                                <ExternalLink className="h-3 w-3" />
+                              </a>
+                            )}
                             {food.krogerProductId && (
                               <a
                                 href={`https://www.kroger.com/p/${food.krogerProductId}`}

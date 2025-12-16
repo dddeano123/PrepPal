@@ -8,6 +8,7 @@ import {
   pantryStaples,
   krogerTokens,
   recipeTools,
+  tools,
   type User,
   type UpsertUser,
   type Recipe,
@@ -26,6 +27,8 @@ import {
   type InsertKrogerTokens,
   type RecipeTool,
   type InsertRecipeTool,
+  type Tool,
+  type InsertTool,
   type RecipeWithIngredients,
   type IngredientWithFood,
 } from "@shared/schema";
@@ -86,6 +89,14 @@ export interface IStorage {
   createRecipeTool(tool: InsertRecipeTool): Promise<RecipeTool>;
   updateRecipeTools(recipeId: number, toolsData: InsertRecipeTool[]): Promise<void>;
   deleteRecipeTool(id: number): Promise<boolean>;
+
+  // Universal tools operations (user's kitchen tool inventory)
+  getTools(userId: string): Promise<Tool[]>;
+  getTool(id: number, userId: string): Promise<Tool | undefined>;
+  searchTools(userId: string, query: string): Promise<Tool[]>;
+  createTool(tool: InsertTool): Promise<Tool>;
+  updateTool(id: number, userId: string, tool: Partial<InsertTool>): Promise<Tool | undefined>;
+  deleteTool(id: number, userId: string): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -549,6 +560,56 @@ export class DatabaseStorage implements IStorage {
     const result = await db
       .delete(recipeTools)
       .where(eq(recipeTools.id, id))
+      .returning();
+    return result.length > 0;
+  }
+
+  // Universal tools operations (user's kitchen tool inventory)
+  async getTools(userId: string): Promise<Tool[]> {
+    return await db
+      .select()
+      .from(tools)
+      .where(eq(tools.userId, userId))
+      .orderBy(tools.name);
+  }
+
+  async getTool(id: number, userId: string): Promise<Tool | undefined> {
+    const [tool] = await db
+      .select()
+      .from(tools)
+      .where(and(eq(tools.id, id), eq(tools.userId, userId)));
+    return tool;
+  }
+
+  async searchTools(userId: string, query: string): Promise<Tool[]> {
+    return await db
+      .select()
+      .from(tools)
+      .where(and(eq(tools.userId, userId), ilike(tools.name, `%${query}%`)))
+      .orderBy(tools.name);
+  }
+
+  async createTool(toolData: InsertTool): Promise<Tool> {
+    const [tool] = await db
+      .insert(tools)
+      .values(toolData)
+      .returning();
+    return tool;
+  }
+
+  async updateTool(id: number, userId: string, toolData: Partial<InsertTool>): Promise<Tool | undefined> {
+    const [tool] = await db
+      .update(tools)
+      .set(toolData)
+      .where(and(eq(tools.id, id), eq(tools.userId, userId)))
+      .returning();
+    return tool;
+  }
+
+  async deleteTool(id: number, userId: string): Promise<boolean> {
+    const result = await db
+      .delete(tools)
+      .where(and(eq(tools.id, id), eq(tools.userId, userId)))
       .returning();
     return result.length > 0;
   }

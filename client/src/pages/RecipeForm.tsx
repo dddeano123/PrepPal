@@ -7,6 +7,7 @@ import { z } from "zod";
 import { Layout, PageHeader } from "@/components/Layout";
 import { IngredientRow, IngredientTableHeader, IngredientTotalsRow, type EditableIngredient } from "@/components/IngredientRow";
 import { FoodSearchModal } from "@/components/FoodSearchModal";
+import { ToolAutocomplete } from "@/components/ToolAutocomplete";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -606,28 +607,13 @@ export default function RecipeForm() {
               {tools.length > 0 ? (
                 <div className="flex flex-wrap gap-2">
                   {tools.map((tool, index) => (
-                    <div
+                    <ToolAutocomplete
                       key={index}
-                      className="flex items-center gap-2 bg-muted/50 rounded-md px-3 py-2"
-                    >
-                      <Input
-                        value={tool}
-                        onChange={(e) => updateTool(index, e.target.value)}
-                        placeholder="e.g., Rice cooker, Pan"
-                        className="h-8 w-40 bg-transparent border-0 focus-visible:ring-0"
-                        data-testid={`input-tool-${index}`}
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6"
-                        onClick={() => deleteTool(index)}
-                        data-testid={`button-delete-tool-${index}`}
-                      >
-                        <X className="h-3 w-3" />
-                      </Button>
-                    </div>
+                      value={tool}
+                      onChange={(value) => updateTool(index, value)}
+                      onDelete={() => deleteTool(index)}
+                      index={index}
+                    />
                   ))}
                 </div>
               ) : (

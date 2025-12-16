@@ -575,6 +575,105 @@ export async function registerRoutes(
     }
   });
 
+  // ==================== Kitchen Tools Routes ====================
+  
+  // Get all user's kitchen tools
+  app.get("/api/tools", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const userTools = await storage.getTools(userId);
+      res.json(userTools);
+    } catch (error) {
+      console.error("Error fetching tools:", error);
+      res.status(500).json({ message: "Failed to fetch tools" });
+    }
+  });
+
+  // Search tools for autocomplete
+  app.get("/api/tools/search", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const query = req.query.q as string || "";
+      
+      const matchingTools = await storage.searchTools(userId, query);
+      res.json(matchingTools);
+    } catch (error) {
+      console.error("Error searching tools:", error);
+      res.status(500).json({ message: "Failed to search tools" });
+    }
+  });
+
+  // Create a new kitchen tool
+  app.post("/api/tools", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const name = (req.body.name || "").trim();
+      
+      if (!name) {
+        return res.status(400).json({ message: "Tool name is required" });
+      }
+      
+      // Check for duplicates
+      const existingTools = await storage.getTools(userId);
+      const isDuplicate = existingTools.some(
+        t => t.name.toLowerCase() === name.toLowerCase()
+      );
+      
+      if (isDuplicate) {
+        return res.status(400).json({ message: "This tool already exists" });
+      }
+      
+      const tool = await storage.createTool({
+        userId,
+        name,
+        notes: req.body.notes || null,
+      });
+      
+      res.status(201).json(tool);
+    } catch (error) {
+      console.error("Error creating tool:", error);
+      res.status(500).json({ message: "Failed to create tool" });
+    }
+  });
+
+  // Update a kitchen tool
+  app.patch("/api/tools/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const toolId = parseInt(req.params.id);
+      
+      const tool = await storage.updateTool(toolId, userId, req.body);
+      
+      if (!tool) {
+        return res.status(404).json({ message: "Tool not found" });
+      }
+      
+      res.json(tool);
+    } catch (error) {
+      console.error("Error updating tool:", error);
+      res.status(500).json({ message: "Failed to update tool" });
+    }
+  });
+
+  // Delete a kitchen tool
+  app.delete("/api/tools/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const toolId = parseInt(req.params.id);
+      
+      const deleted = await storage.deleteTool(toolId, userId);
+      
+      if (!deleted) {
+        return res.status(404).json({ message: "Tool not found" });
+      }
+      
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting tool:", error);
+      res.status(500).json({ message: "Failed to delete tool" });
+    }
+  });
+
   // ==================== Kroger Integration Routes ====================
 
   // Check if Kroger API is configured

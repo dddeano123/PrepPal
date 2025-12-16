@@ -104,12 +104,13 @@ export const foods = pgTable("foods", {
   id: serial("id").primaryKey(),
   userId: varchar("user_id").notNull().references(() => users.id),
   fdcId: integer("fdc_id"), // USDA FoodData Central ID (null for custom foods)
+  offProductCode: text("off_product_code"), // Open Food Facts barcode/product code
   krogerProductId: text("kroger_product_id"), // Kroger product UPC for cart integration
   krogerProductName: text("kroger_product_name"), // Display name from Kroger
   krogerProductImage: text("kroger_product_image"), // Product image URL
   name: text("name").notNull(),
   description: text("description"),
-  dataType: text("data_type"), // Foundation, SR Legacy, Branded, Custom
+  dataType: text("data_type"), // Foundation, SR Legacy, Branded, Custom, Open Food Facts
   caloriesPer100g: real("calories_per_100g").notNull(),
   proteinPer100g: real("protein_per_100g").notNull(),
   carbsPer100g: real("carbs_per_100g").notNull(),
@@ -304,12 +305,37 @@ export const insertKrogerTokensSchema = createInsertSchema(krogerTokens).omit({
 export type InsertKrogerTokens = z.infer<typeof insertKrogerTokensSchema>;
 export type KrogerTokens = typeof krogerTokens.$inferSelect;
 
-// Recipe tools table - cooking equipment needed for recipes
+// Universal tools table - user's kitchen tool inventory
+export const tools = pgTable("tools", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  name: text("name").notNull(), // e.g., "Rice Cooker", "Slow Cooker", "Cast Iron Pan"
+  notes: text("notes"), // Optional notes like "6 quart capacity"
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const toolsRelations = relations(tools, ({ one }) => ({
+  user: one(users, {
+    fields: [tools.userId],
+    references: [users.id],
+  }),
+}));
+
+export const insertToolSchema = createInsertSchema(tools).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertTool = z.infer<typeof insertToolSchema>;
+export type Tool = typeof tools.$inferSelect;
+
+// Recipe tools table - links recipes to tools
 export const recipeTools = pgTable("recipe_tools", {
   id: serial("id").primaryKey(),
   recipeId: integer("recipe_id").notNull().references(() => recipes.id, { onDelete: "cascade" }),
-  name: text("name").notNull(), // e.g., "Rice Cooker", "Slow Cooker", "Cast Iron Pan"
-  notes: text("notes"), // Optional notes like "6 quart" or "medium heat"
+  toolId: integer("tool_id").references(() => tools.id), // Reference to universal tool
+  name: text("name").notNull(), // Denormalized name for display
+  notes: text("notes"), // Optional notes like "medium heat"
   sortOrder: integer("sort_order").default(0),
 });
 
@@ -317,6 +343,10 @@ export const recipeToolsRelations = relations(recipeTools, ({ one }) => ({
   recipe: one(recipes, {
     fields: [recipeTools.recipeId],
     references: [recipes.id],
+  }),
+  tool: one(tools, {
+    fields: [recipeTools.toolId],
+    references: [tools.id],
   }),
 }));
 

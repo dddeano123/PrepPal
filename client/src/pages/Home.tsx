@@ -18,13 +18,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Search, X, Tag, LayoutGrid, List, Utensils } from "lucide-react";
+import { Plus, Search, X, Tag, LayoutGrid, List, Utensils, ChefHat } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { getTagClasses } from "@/lib/tagColors";
 import { calculateRecipeTotals, calculatePerServingMacros } from "@/lib/macros";
-import type { RecipeWithIngredients, MacroTotals } from "@shared/schema";
+import type { RecipeWithIngredients, MacroTotals, Tool } from "@shared/schema";
 
 type ViewMode = "grid" | "list";
 
@@ -32,7 +32,8 @@ export default function Home() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [selectedMeals, setSelectedMeals] = useState<string[]>([]);
+  const [selectedTools, setSelectedTools] = useState<string[]>([]);
   const [deleteRecipeId, setDeleteRecipeId] = useState<number | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
     return (localStorage.getItem("recipeViewMode") as ViewMode) || "grid";
@@ -40,6 +41,10 @@ export default function Home() {
 
   const { data: recipes, isLoading } = useQuery<RecipeWithIngredients[]>({
     queryKey: ["/api/recipes"],
+  });
+
+  const { data: userTools } = useQuery<Tool[]>({
+    queryKey: ["/api/tools"],
   });
 
   const deleteMutation = useMutation({
@@ -99,29 +104,47 @@ export default function Home() {
     },
   });
 
-  // Extract all unique tags from recipes
-  const allTags = useMemo(() => {
+  // Extract all unique meals (tags) from recipes
+  const allMeals = useMemo(() => {
     if (!recipes) return [];
-    const tagSet = new Set<string>();
+    const mealSet = new Set<string>();
     recipes.forEach((recipe) => {
-      recipe.tags?.forEach((tag) => tagSet.add(tag));
+      recipe.tags?.forEach((tag) => mealSet.add(tag));
     });
-    return Array.from(tagSet).sort();
+    return Array.from(mealSet).sort();
   }, [recipes]);
 
-  // Toggle tag selection
-  const toggleTag = (tag: string) => {
-    setSelectedTags((prev) =>
-      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
+  // Extract all unique tools from recipes
+  const allRecipeTools = useMemo(() => {
+    if (!recipes) return [];
+    const toolSet = new Set<string>();
+    recipes.forEach((recipe) => {
+      recipe.tools?.forEach((tool) => toolSet.add(tool.name));
+    });
+    return Array.from(toolSet).sort();
+  }, [recipes]);
+
+  // Toggle meal selection
+  const toggleMeal = (meal: string) => {
+    setSelectedMeals((prev) =>
+      prev.includes(meal) ? prev.filter((m) => m !== meal) : [...prev, meal]
     );
   };
 
-  // Clear all tag filters
-  const clearTagFilters = () => {
-    setSelectedTags([]);
+  // Toggle tool selection
+  const toggleTool = (tool: string) => {
+    setSelectedTools((prev) =>
+      prev.includes(tool) ? prev.filter((t) => t !== tool) : [...prev, tool]
+    );
   };
 
-  // Filter recipes by search query AND selected tags
+  // Clear all filters
+  const clearAllFilters = () => {
+    setSelectedMeals([]);
+    setSelectedTools([]);
+  };
+
+  // Filter recipes by search query, selected meals, AND selected tools
   const filteredRecipes = useMemo(() => {
     if (!recipes) return [];
     
@@ -130,12 +153,15 @@ export default function Home() {
         recipe.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
         recipe.tags?.some((tag) => tag.toLowerCase().includes(searchQuery.toLowerCase()));
       
-      const matchesTags = selectedTags.length === 0 ||
-        selectedTags.every((tag) => recipe.tags?.includes(tag));
+      const matchesMeals = selectedMeals.length === 0 ||
+        selectedMeals.every((meal) => recipe.tags?.includes(meal));
       
-      return matchesSearch && matchesTags;
+      const matchesTools = selectedTools.length === 0 ||
+        selectedTools.every((tool) => recipe.tools?.some((t) => t.name === tool));
+      
+      return matchesSearch && matchesMeals && matchesTools;
     });
-  }, [recipes, searchQuery, selectedTags]);
+  }, [recipes, searchQuery, selectedMeals, selectedTools]);
 
   // Separate recipes by eating status
   const currentlyEating = useMemo(() => 
@@ -289,40 +315,70 @@ export default function Home() {
               </div>
             </div>
 
-            {allTags.length > 0 && (
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm text-muted-foreground flex items-center gap-1">
-                  <Tag className="h-3 w-3" />
-                  Filter by tag:
-                </span>
-                {allTags.map((tag) => {
-                  const isSelected = selectedTags.includes(tag);
-                  return (
-                    <span
-                      key={tag}
-                      onClick={() => toggleTag(tag)}
-                      className={cn(
-                        "px-2 py-0.5 rounded text-xs font-medium cursor-pointer transition-all",
-                        isSelected 
-                          ? getTagClasses(tag) + " ring-2 ring-offset-1 ring-primary"
-                          : "bg-muted text-muted-foreground hover:bg-muted/80"
-                      )}
-                      data-testid={`tag-filter-${tag.toLowerCase().replace(/\s+/g, "-")}`}
-                    >
-                      {tag}
-                      {isSelected && <X className="h-3 w-3 ml-1 inline" />}
+            {(allMeals.length > 0 || allRecipeTools.length > 0) && (
+              <div className="space-y-3">
+                {allMeals.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm text-muted-foreground flex items-center gap-1">
+                      <Tag className="h-3 w-3" />
+                      Filter by meal:
                     </span>
-                  );
-                })}
-                {selectedTags.length > 0 && (
+                    {allMeals.map((meal) => {
+                      const isSelected = selectedMeals.includes(meal);
+                      return (
+                        <span
+                          key={meal}
+                          onClick={() => toggleMeal(meal)}
+                          className={cn(
+                            "px-2 py-0.5 rounded text-xs font-medium cursor-pointer transition-all",
+                            isSelected 
+                              ? getTagClasses(meal) + " ring-2 ring-offset-1 ring-primary"
+                              : "bg-muted text-muted-foreground hover:bg-muted/80"
+                          )}
+                          data-testid={`meal-filter-${meal.toLowerCase().replace(/\s+/g, "-")}`}
+                        >
+                          {meal}
+                          {isSelected && <X className="h-3 w-3 ml-1 inline" />}
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+                {allRecipeTools.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm text-muted-foreground flex items-center gap-1">
+                      <ChefHat className="h-3 w-3" />
+                      Filter by tool:
+                    </span>
+                    {allRecipeTools.map((tool) => {
+                      const isSelected = selectedTools.includes(tool);
+                      return (
+                        <Badge
+                          key={tool}
+                          variant={isSelected ? "default" : "outline"}
+                          className={cn(
+                            "cursor-pointer transition-all",
+                            isSelected && "ring-2 ring-offset-1 ring-primary"
+                          )}
+                          onClick={() => toggleTool(tool)}
+                          data-testid={`tool-filter-${tool.toLowerCase().replace(/\s+/g, "-")}`}
+                        >
+                          {tool}
+                          {isSelected && <X className="h-3 w-3 ml-1 inline" />}
+                        </Badge>
+                      );
+                    })}
+                  </div>
+                )}
+                {(selectedMeals.length > 0 || selectedTools.length > 0) && (
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={clearTagFilters}
+                    onClick={clearAllFilters}
                     className="text-muted-foreground"
-                    data-testid="button-clear-tag-filters"
+                    data-testid="button-clear-all-filters"
                   >
-                    Clear all
+                    Clear all filters
                   </Button>
                 )}
               </div>

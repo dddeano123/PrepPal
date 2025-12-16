@@ -225,28 +225,83 @@ export default function RecipeForm() {
     setAutoMatchingIndices(prev => new Set(prev).add(index));
 
     try {
-      // Extract search term from product description (remove brand and size info)
-      const searchTerms = product.description
-        .replace(/\d+\s*(oz|lb|ct|pack|count|fl\s*oz|ml|g|kg)/gi, '')
-        .replace(/[^a-zA-Z\s]/g, '')
-        .trim()
-        .split(/\s+/)
-        .slice(0, 3)
-        .join(' ');
-
-      // Search USDA for matching food
-      const response = await fetch(`/api/usda/search?query=${encodeURIComponent(searchTerms)}&pageSize=5`);
+      // Common brand names to remove from search
+      const commonBrands = [
+        'kroger', 'simple truth', 'private selection', 'heritage farm',
+        'comforts', 'big k', 'check this out', 'psst', 'lala', 'borden',
+        'organic', 'natural', 'fresh', 'premium', 'select', 'choice',
+        'usda', 'certified', 'angus', 'grass fed', 'free range', 'cage free',
+        'all natural', 'no antibiotics', 'hormone free', 'boneless', 'skinless'
+      ];
       
-      if (!response.ok) {
-        throw new Error('USDA search failed');
-      }
-
-      const data = await response.json();
+      // Helper to clean product description for USDA search
+      const cleanDescription = (desc: string): string => {
+        let cleaned = desc.toLowerCase();
+        // Remove brand names
+        commonBrands.forEach(brand => {
+          cleaned = cleaned.replace(new RegExp(brand, 'gi'), '');
+        });
+        // Remove size/weight info
+        cleaned = cleaned.replace(/\d+(\.\d+)?\s*(oz|lb|lbs|ct|pack|count|fl\s*oz|ml|g|kg|each|per|pound)/gi, '');
+        // Remove special characters except spaces
+        cleaned = cleaned.replace(/[^a-zA-Z\s]/g, ' ');
+        // Remove extra spaces
+        cleaned = cleaned.replace(/\s+/g, ' ').trim();
+        return cleaned;
+      };
       
-      if (data.foods && data.foods.length > 0) {
-        // Pick the best match (first result typically most relevant)
-        const bestMatch = data.foods[0];
+      // Generate multiple search term variations to try
+      const generateSearchTerms = (desc: string): string[] => {
+        const cleaned = cleanDescription(desc);
+        const words = cleaned.split(' ').filter(w => w.length > 2);
         
+        const terms: string[] = [];
+        
+        // Try full cleaned description (first 4 words)
+        if (words.length > 0) {
+          terms.push(words.slice(0, 4).join(' '));
+        }
+        
+        // Try first 2 words (more generic)
+        if (words.length >= 2) {
+          terms.push(words.slice(0, 2).join(' '));
+        }
+        
+        // Try just the first word (most generic, e.g., "chicken", "beef")
+        if (words.length >= 1) {
+          terms.push(words[0]);
+        }
+        
+        // Try last 2 meaningful words (sometimes the food type is at the end)
+        if (words.length >= 3) {
+          terms.push(words.slice(-2).join(' '));
+        }
+        
+        // Remove duplicates
+        return Array.from(new Set(terms)).filter(t => t.length >= 3);
+      };
+      
+      const searchTermsList = generateSearchTerms(product.description);
+      
+      // Try each search term until we find a match
+      let bestMatch = null;
+      for (const searchTerm of searchTermsList) {
+        const response = await fetch(`/api/usda/search?query=${encodeURIComponent(searchTerm)}&pageSize=5`);
+        
+        if (!response.ok) {
+          continue;
+        }
+
+        const data = await response.json();
+        
+        if (data.foods && data.foods.length > 0) {
+          // Found results - pick the first one
+          bestMatch = data.foods[0];
+          break;
+        }
+      }
+      
+      if (bestMatch) {
         // Extract nutrition data with validation
         const getNutrient = (id: number) => 
           bestMatch.foodNutrients?.find((n: any) => n.nutrientId === id)?.value;

@@ -88,7 +88,7 @@ Respond with JSON in this format: { "instructions": ["Step 1...", "Step 2...", .
       if (error.message.includes("invalid JSON") || error.message.includes("missing the expected")) {
         throw error;
       }
-      console.error("OpenAI API error:", error.message);
+      console.error("OpenAI API error details:", error);
       throw new Error(`Failed to generate instructions: ${error.message}`);
     }
     console.error("Unknown error generating cooking instructions:", error);

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Layout, PageHeader } from "@/components/Layout";
 import { Button } from "@/components/ui/button";
@@ -22,30 +22,43 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Label } from "@/components/ui/label";
-import { Plus, Search, Edit2, Trash2, Package } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Plus, Search, Edit2, Trash2, Package, ExternalLink, Calculator } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Food } from "@shared/schema";
 
 interface FoodFormData {
   name: string;
-  caloriesPer100g: number;
-  proteinPer100g: number;
-  carbsPer100g: number;
-  fatPer100g: number;
+  servingSize: number;
+  caloriesPerServing: number;
+  proteinPerServing: number;
+  carbsPerServing: number;
+  fatPerServing: number;
   krogerProductId?: string;
   krogerProductName?: string;
 }
 
 const defaultFormData: FoodFormData = {
   name: "",
-  caloriesPer100g: 0,
-  proteinPer100g: 0,
-  carbsPer100g: 0,
-  fatPer100g: 0,
+  servingSize: 100,
+  caloriesPerServing: 0,
+  proteinPerServing: 0,
+  carbsPerServing: 0,
+  fatPerServing: 0,
   krogerProductId: "",
   krogerProductName: "",
 };
+
+function convertToPer100g(perServing: number, servingSize: number): number {
+  if (servingSize <= 0) return 0;
+  return (perServing / servingSize) * 100;
+}
+
+function convertToPerServing(per100g: number, servingSize: number): number {
+  if (servingSize <= 0) return 0;
+  return (per100g / 100) * servingSize;
+}
 
 export default function Foods() {
   const { toast } = useToast();
@@ -53,6 +66,7 @@ export default function Foods() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingFood, setEditingFood] = useState<Food | null>(null);
   const [formData, setFormData] = useState<FoodFormData>(defaultFormData);
+  const [useServingMode, setUseServingMode] = useState(true);
 
   const { data: foods, isLoading } = useQuery<Food[]>({
     queryKey: ["/api/foods"],
@@ -60,10 +74,17 @@ export default function Foods() {
 
   const createMutation = useMutation({
     mutationFn: async (data: FoodFormData) => {
-      return await apiRequest("POST", "/api/foods", {
-        ...data,
+      const per100gData = {
+        name: data.name,
+        caloriesPer100g: convertToPer100g(data.caloriesPerServing, data.servingSize),
+        proteinPer100g: convertToPer100g(data.proteinPerServing, data.servingSize),
+        carbsPer100g: convertToPer100g(data.carbsPerServing, data.servingSize),
+        fatPer100g: convertToPer100g(data.fatPerServing, data.servingSize),
+        krogerProductId: data.krogerProductId || undefined,
+        krogerProductName: data.krogerProductName || undefined,
         dataType: "Custom",
-      });
+      };
+      return await apiRequest("POST", "/api/foods", per100gData);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/foods"] });
@@ -76,11 +97,18 @@ export default function Foods() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: Partial<FoodFormData> }) => {
-      return await apiRequest("PUT", `/api/foods/${id}`, {
-        ...data,
+    mutationFn: async ({ id, data }: { id: number; data: FoodFormData }) => {
+      const per100gData = {
+        name: data.name,
+        caloriesPer100g: convertToPer100g(data.caloriesPerServing, data.servingSize),
+        proteinPer100g: convertToPer100g(data.proteinPerServing, data.servingSize),
+        carbsPer100g: convertToPer100g(data.carbsPerServing, data.servingSize),
+        fatPer100g: convertToPer100g(data.fatPerServing, data.servingSize),
+        krogerProductId: data.krogerProductId || undefined,
+        krogerProductName: data.krogerProductName || undefined,
         dataType: "Custom",
-      });
+      };
+      return await apiRequest("PUT", `/api/foods/${id}`, per100gData);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/foods"] });
@@ -108,6 +136,7 @@ export default function Foods() {
   const openCreateDialog = () => {
     setEditingFood(null);
     setFormData(defaultFormData);
+    setUseServingMode(true);
     setIsDialogOpen(true);
   };
 
@@ -115,13 +144,15 @@ export default function Foods() {
     setEditingFood(food);
     setFormData({
       name: food.name,
-      caloriesPer100g: food.caloriesPer100g ?? 0,
-      proteinPer100g: food.proteinPer100g ?? 0,
-      carbsPer100g: food.carbsPer100g ?? 0,
-      fatPer100g: food.fatPer100g ?? 0,
+      servingSize: 100,
+      caloriesPerServing: food.caloriesPer100g ?? 0,
+      proteinPerServing: food.proteinPer100g ?? 0,
+      carbsPerServing: food.carbsPer100g ?? 0,
+      fatPerServing: food.fatPer100g ?? 0,
       krogerProductId: food.krogerProductId || "",
       krogerProductName: food.krogerProductName || "",
     });
+    setUseServingMode(false);
     setIsDialogOpen(true);
   };
 
@@ -139,6 +170,16 @@ export default function Foods() {
       createMutation.mutate(formData);
     }
   };
+
+  const per100gPreview = useMemo(() => {
+    if (formData.servingSize <= 0) return { calories: 0, protein: 0, carbs: 0, fat: 0 };
+    return {
+      calories: convertToPer100g(formData.caloriesPerServing, formData.servingSize),
+      protein: convertToPer100g(formData.proteinPerServing, formData.servingSize),
+      carbs: convertToPer100g(formData.carbsPerServing, formData.servingSize),
+      fat: convertToPer100g(formData.fatPerServing, formData.servingSize),
+    };
+  }, [formData]);
 
   const filteredFoods = foods?.filter((food) =>
     food.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -210,11 +251,17 @@ export default function Foods() {
                         <TableCell>
                           <div>
                             <div className="font-medium">{food.name}</div>
-                            {food.krogerProductName && (
-                              <div className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                            {food.krogerProductId && (
+                              <a
+                                href={`https://www.kroger.com/p/${food.krogerProductId}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-blue-600 dark:text-blue-400 flex items-center gap-1 mt-0.5 hover:underline"
+                              >
                                 <Package className="h-3 w-3" />
-                                {food.krogerProductName}
-                              </div>
+                                {food.krogerProductName || "View on Kroger"}
+                                <ExternalLink className="h-3 w-3" />
+                              </a>
                             )}
                           </div>
                         </TableCell>
@@ -223,7 +270,7 @@ export default function Foods() {
                             {food.dataType || "Custom"}
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-right font-mono">{food.caloriesPer100g ?? 0}</TableCell>
+                        <TableCell className="text-right font-mono">{Math.round(food.caloriesPer100g ?? 0)}</TableCell>
                         <TableCell className="text-right font-mono">{food.proteinPer100g?.toFixed(1) ?? "0.0"}</TableCell>
                         <TableCell className="text-right font-mono">{food.carbsPer100g?.toFixed(1) ?? "0.0"}</TableCell>
                         <TableCell className="text-right font-mono">{food.fatPer100g?.toFixed(1) ?? "0.0"}</TableCell>
@@ -258,7 +305,7 @@ export default function Foods() {
       </div>
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>{editingFood ? "Edit Food" : "Add Custom Food"}</DialogTitle>
           </DialogHeader>
@@ -276,15 +323,54 @@ export default function Foods() {
                 />
               </div>
 
+              <div className="flex items-center gap-2 p-3 rounded-md bg-muted/50">
+                <Calculator className="h-4 w-4 text-muted-foreground" />
+                <Label htmlFor="serving-mode" className="flex-1 text-sm">
+                  Enter nutrition per serving size
+                </Label>
+                <Switch
+                  id="serving-mode"
+                  checked={useServingMode}
+                  onCheckedChange={(checked) => {
+                    setUseServingMode(checked);
+                    if (checked) {
+                      setFormData({ ...formData, servingSize: 100 });
+                    }
+                  }}
+                  data-testid="switch-serving-mode"
+                />
+              </div>
+
+              {useServingMode && (
+                <div className="space-y-2">
+                  <Label htmlFor="servingSize">Serving Size (grams)</Label>
+                  <Input
+                    id="servingSize"
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={formData.servingSize}
+                    onChange={(e) => setFormData({ ...formData, servingSize: parseFloat(e.target.value) || 0 })}
+                    className="font-mono"
+                    data-testid="input-serving-size"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Enter the serving size from the nutrition label (e.g., 28g for chips)
+                  </p>
+                </div>
+              )}
+
               <div className="space-y-2">
-                <Label>Nutrition per 100g</Label>
+                <Label>
+                  Nutrition per {useServingMode ? `${formData.servingSize || 100}g serving` : "100g"}
+                </Label>
                 <div className="grid grid-cols-4 gap-2">
                   <div>
                     <Label className="text-xs text-muted-foreground">Calories</Label>
                     <Input
                       type="number"
-                      value={formData.caloriesPer100g}
-                      onChange={(e) => setFormData({ ...formData, caloriesPer100g: parseFloat(e.target.value) || 0 })}
+                      value={formData.caloriesPerServing}
+                      onChange={(e) => setFormData({ ...formData, caloriesPerServing: parseFloat(e.target.value) || 0 })}
                       className="font-mono"
                       data-testid="input-food-calories"
                     />
@@ -294,8 +380,8 @@ export default function Foods() {
                     <Input
                       type="number"
                       step="0.1"
-                      value={formData.proteinPer100g}
-                      onChange={(e) => setFormData({ ...formData, proteinPer100g: parseFloat(e.target.value) || 0 })}
+                      value={formData.proteinPerServing}
+                      onChange={(e) => setFormData({ ...formData, proteinPerServing: parseFloat(e.target.value) || 0 })}
                       className="font-mono"
                       data-testid="input-food-protein"
                     />
@@ -305,8 +391,8 @@ export default function Foods() {
                     <Input
                       type="number"
                       step="0.1"
-                      value={formData.carbsPer100g}
-                      onChange={(e) => setFormData({ ...formData, carbsPer100g: parseFloat(e.target.value) || 0 })}
+                      value={formData.carbsPerServing}
+                      onChange={(e) => setFormData({ ...formData, carbsPerServing: parseFloat(e.target.value) || 0 })}
                       className="font-mono"
                       data-testid="input-food-carbs"
                     />
@@ -316,14 +402,26 @@ export default function Foods() {
                     <Input
                       type="number"
                       step="0.1"
-                      value={formData.fatPer100g}
-                      onChange={(e) => setFormData({ ...formData, fatPer100g: parseFloat(e.target.value) || 0 })}
+                      value={formData.fatPerServing}
+                      onChange={(e) => setFormData({ ...formData, fatPerServing: parseFloat(e.target.value) || 0 })}
                       className="font-mono"
                       data-testid="input-food-fat"
                     />
                   </div>
                 </div>
               </div>
+
+              {useServingMode && formData.servingSize !== 100 && formData.servingSize > 0 && (
+                <div className="p-3 rounded-md bg-muted/50 space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground">Stored as per 100g:</p>
+                  <div className="flex gap-4 text-xs font-mono">
+                    <span>{Math.round(per100gPreview.calories)} cal</span>
+                    <span>{per100gPreview.protein.toFixed(1)}g protein</span>
+                    <span>{per100gPreview.carbs.toFixed(1)}g carbs</span>
+                    <span>{per100gPreview.fat.toFixed(1)}g fat</span>
+                  </div>
+                </div>
+              )}
 
               <div className="space-y-2">
                 <Label htmlFor="krogerProductId">Kroger Product ID (optional)</Label>
@@ -334,6 +432,17 @@ export default function Foods() {
                   placeholder="Link to Kroger product for shopping"
                   data-testid="input-food-kroger-id"
                 />
+                {formData.krogerProductId && (
+                  <a
+                    href={`https://www.kroger.com/p/${formData.krogerProductId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-blue-600 dark:text-blue-400 flex items-center gap-1 hover:underline"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                    View product on Kroger
+                  </a>
+                )}
               </div>
 
               <div className="space-y-2">

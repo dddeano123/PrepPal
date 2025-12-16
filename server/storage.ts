@@ -44,6 +44,7 @@ export interface IStorage {
   updateRecipe(id: number, userId: string, recipe: Partial<InsertRecipe>, ingredientsData: InsertIngredient[]): Promise<Recipe | undefined>;
   deleteRecipe(id: number, userId: string): Promise<boolean>;
   duplicateRecipe(id: number, userId: string): Promise<Recipe | undefined>;
+  updateRecipeEatingStatus(id: number, userId: string, isCurrentlyEating: boolean): Promise<Recipe | undefined>;
 
   // Ingredient operations
   getIngredients(recipeId: number): Promise<IngredientWithFood[]>;
@@ -258,6 +259,15 @@ export class DatabaseStorage implements IStorage {
     }
 
     return duplicated;
+  }
+
+  async updateRecipeEatingStatus(id: number, userId: string, isCurrentlyEating: boolean): Promise<Recipe | undefined> {
+    const [updated] = await db
+      .update(recipes)
+      .set({ isCurrentlyEating })
+      .where(and(eq(recipes.id, id), eq(recipes.userId, userId)))
+      .returning();
+    return updated;
   }
 
   // Ingredient operations

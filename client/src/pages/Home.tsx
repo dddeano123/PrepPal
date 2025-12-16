@@ -7,6 +7,7 @@ import { RecipesEmptyState } from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -17,11 +18,15 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Search, X, Tag } from "lucide-react";
+import { Plus, Search, X, Tag, LayoutGrid, List, Utensils } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import type { RecipeWithIngredients } from "@shared/schema";
+import { getTagClasses } from "@/lib/tagColors";
+import { calculateRecipeTotals, calculatePerServingMacros } from "@/lib/macros";
+import type { RecipeWithIngredients, MacroTotals } from "@shared/schema";
+
+type ViewMode = "grid" | "list";
 
 export default function Home() {
   const [, navigate] = useLocation();
@@ -29,6 +34,9 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [deleteRecipeId, setDeleteRecipeId] = useState<number | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    return (localStorage.getItem("recipeViewMode") as ViewMode) || "grid";
+  });
 
   const { data: recipes, isLoading } = useQuery<RecipeWithIngredients[]>({
     queryKey: ["/api/recipes"],
@@ -75,6 +83,22 @@ export default function Home() {
     },
   });
 
+  const toggleEatingMutation = useMutation({
+    mutationFn: async ({ id, isCurrentlyEating }: { id: number; isCurrentlyEating: boolean }) => {
+      return await apiRequest("PATCH", `/api/recipes/${id}/eating-status`, { isCurrentlyEating });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/recipes"] });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to update eating status.",
+        variant: "destructive",
+      });
+    },
+  });
+
   // Extract all unique tags from recipes
   const allTags = useMemo(() => {
     if (!recipes) return [];
@@ -102,12 +126,10 @@ export default function Home() {
     if (!recipes) return [];
     
     return recipes.filter((recipe) => {
-      // Text search filter
       const matchesSearch = searchQuery === "" ||
         recipe.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
         recipe.tags?.some((tag) => tag.toLowerCase().includes(searchQuery.toLowerCase()));
       
-      // Tag filter - recipe must have ALL selected tags
       const matchesTags = selectedTags.length === 0 ||
         selectedTags.every((tag) => recipe.tags?.includes(tag));
       
@@ -115,8 +137,89 @@ export default function Home() {
     });
   }, [recipes, searchQuery, selectedTags]);
 
+  // Separate recipes by eating status
+  const currentlyEating = useMemo(() => 
+    filteredRecipes.filter(r => r.isCurrentlyEating),
+    [filteredRecipes]
+  );
+
+  const notEating = useMemo(() => 
+    filteredRecipes.filter(r => !r.isCurrentlyEating),
+    [filteredRecipes]
+  );
+
+  // Calculate daily totals for currently eating recipes
+  const dailyTotals = useMemo<MacroTotals>(() => {
+    let totalCalories = 0;
+    let totalProtein = 0;
+    let totalCarbs = 0;
+    let totalFat = 0;
+
+    currentlyEating.forEach(recipe => {
+      const recipeTotals = calculateRecipeTotals(recipe.ingredients);
+      totalCalories += recipeTotals.calories;
+      totalProtein += recipeTotals.protein;
+      totalCarbs += recipeTotals.carbs;
+      totalFat += recipeTotals.fat;
+    });
+
+    return {
+      calories: totalCalories,
+      protein: totalProtein,
+      carbs: totalCarbs,
+      fat: totalFat,
+    };
+  }, [currentlyEating]);
+
   const handleCreateRecipe = () => {
     navigate("/recipes/new");
+  };
+
+  const handleViewModeChange = (mode: ViewMode) => {
+    setViewMode(mode);
+    localStorage.setItem("recipeViewMode", mode);
+  };
+
+  const handleToggleEating = (recipe: RecipeWithIngredients) => {
+    toggleEatingMutation.mutate({
+      id: recipe.id,
+      isCurrentlyEating: !recipe.isCurrentlyEating,
+    });
+  };
+
+  const renderRecipes = (recipeList: RecipeWithIngredients[]) => {
+    if (viewMode === "list") {
+      return (
+        <div className="space-y-2">
+          {recipeList.map((recipe) => (
+            <RecipeCard
+              key={recipe.id}
+              recipe={recipe}
+              onEdit={() => navigate(`/recipes/${recipe.id}/edit`)}
+              onDelete={() => setDeleteRecipeId(recipe.id)}
+              onDuplicate={() => duplicateMutation.mutate(recipe.id)}
+              onToggleEating={() => handleToggleEating(recipe)}
+              compact
+            />
+          ))}
+        </div>
+      );
+    }
+
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {recipeList.map((recipe) => (
+          <RecipeCard
+            key={recipe.id}
+            recipe={recipe}
+            onEdit={() => navigate(`/recipes/${recipe.id}/edit`)}
+            onDelete={() => setDeleteRecipeId(recipe.id)}
+            onDuplicate={() => duplicateMutation.mutate(recipe.id)}
+            onToggleEating={() => handleToggleEating(recipe)}
+          />
+        ))}
+      </div>
+    );
   };
 
   return (
@@ -153,15 +256,35 @@ export default function Home() {
       ) : recipes && recipes.length > 0 ? (
         <>
           <div className="mb-6 space-y-4">
-            <div className="relative max-w-md">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search recipes..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
-                data-testid="input-search-recipes"
-              />
+            <div className="flex items-center gap-4 flex-wrap">
+              <div className="relative flex-1 max-w-md">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search recipes..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-10"
+                  data-testid="input-search-recipes"
+                />
+              </div>
+              <div className="flex items-center gap-1 border rounded-md p-1">
+                <Button
+                  variant={viewMode === "grid" ? "secondary" : "ghost"}
+                  size="icon"
+                  onClick={() => handleViewModeChange("grid")}
+                  data-testid="button-view-grid"
+                >
+                  <LayoutGrid className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant={viewMode === "list" ? "secondary" : "ghost"}
+                  size="icon"
+                  onClick={() => handleViewModeChange("list")}
+                  data-testid="button-view-list"
+                >
+                  <List className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
 
             {allTags.length > 0 && (
@@ -173,19 +296,20 @@ export default function Home() {
                 {allTags.map((tag) => {
                   const isSelected = selectedTags.includes(tag);
                   return (
-                    <Badge
+                    <span
                       key={tag}
-                      variant={isSelected ? "default" : "outline"}
-                      className={cn(
-                        "cursor-pointer transition-colors",
-                        isSelected && "toggle-elevate toggle-elevated"
-                      )}
                       onClick={() => toggleTag(tag)}
+                      className={cn(
+                        "px-2 py-0.5 rounded text-xs font-medium cursor-pointer transition-all",
+                        isSelected 
+                          ? getTagClasses(tag) + " ring-2 ring-offset-1 ring-primary"
+                          : "bg-muted text-muted-foreground hover:bg-muted/80"
+                      )}
                       data-testid={`tag-filter-${tag.toLowerCase().replace(/\s+/g, "-")}`}
                     >
                       {tag}
-                      {isSelected && <X className="h-3 w-3 ml-1" />}
-                    </Badge>
+                      {isSelected && <X className="h-3 w-3 ml-1 inline" />}
+                    </span>
                   );
                 })}
                 {selectedTags.length > 0 && (
@@ -204,16 +328,75 @@ export default function Home() {
           </div>
 
           {filteredRecipes && filteredRecipes.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredRecipes.map((recipe) => (
-                <RecipeCard
-                  key={recipe.id}
-                  recipe={recipe}
-                  onEdit={() => navigate(`/recipes/${recipe.id}/edit`)}
-                  onDelete={() => setDeleteRecipeId(recipe.id)}
-                  onDuplicate={() => duplicateMutation.mutate(recipe.id)}
-                />
-              ))}
+            <div className="space-y-8">
+              {currentlyEating.length > 0 && (
+                <section>
+                  <div className="flex items-center gap-2 mb-4">
+                    <Utensils className="h-5 w-5 text-green-600 dark:text-green-400" />
+                    <h2 className="text-lg font-semibold">Currently Eating</h2>
+                    <Badge variant="secondary" className="ml-2">
+                      {currentlyEating.length} {currentlyEating.length === 1 ? "recipe" : "recipes"}
+                    </Badge>
+                  </div>
+                  {renderRecipes(currentlyEating)}
+                </section>
+              )}
+
+              {notEating.length > 0 && (
+                <section>
+                  <div className="flex items-center gap-2 mb-4">
+                    <h2 className="text-lg font-semibold text-muted-foreground">
+                      {currentlyEating.length > 0 ? "Other Recipes" : "All Recipes"}
+                    </h2>
+                    <Badge variant="outline" className="ml-2">
+                      {notEating.length}
+                    </Badge>
+                  </div>
+                  {renderRecipes(notEating)}
+                </section>
+              )}
+
+              {currentlyEating.length > 0 && (
+                <Card className="sticky bottom-4 border-green-200 dark:border-green-800 bg-green-50/80 dark:bg-green-900/20 backdrop-blur-sm">
+                  <CardContent className="py-4">
+                    <div className="flex items-center justify-between flex-wrap gap-4">
+                      <div className="flex items-center gap-2">
+                        <Utensils className="h-5 w-5 text-green-600 dark:text-green-400" />
+                        <span className="font-semibold">Daily Totals</span>
+                        <span className="text-sm text-muted-foreground">
+                          ({currentlyEating.length} {currentlyEating.length === 1 ? "recipe" : "recipes"})
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-6 font-mono text-sm">
+                        <div className="text-center">
+                          <div className="text-lg font-bold" data-testid="text-daily-calories">
+                            {Math.round(dailyTotals.calories)}
+                          </div>
+                          <div className="text-xs text-muted-foreground">calories</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-lg font-bold text-blue-600 dark:text-blue-400" data-testid="text-daily-protein">
+                            {dailyTotals.protein.toFixed(1)}g
+                          </div>
+                          <div className="text-xs text-muted-foreground">protein</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-lg font-bold text-amber-600 dark:text-amber-400" data-testid="text-daily-carbs">
+                            {dailyTotals.carbs.toFixed(1)}g
+                          </div>
+                          <div className="text-xs text-muted-foreground">carbs</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-lg font-bold text-rose-600 dark:text-rose-400" data-testid="text-daily-fat">
+                            {dailyTotals.fat.toFixed(1)}g
+                          </div>
+                          <div className="text-xs text-muted-foreground">fat</div>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
             </div>
           ) : (
             <div className="text-center py-12 text-muted-foreground">

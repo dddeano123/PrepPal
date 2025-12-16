@@ -399,6 +399,15 @@ export default function ShoppingList() {
 
   const { data: krogerLocations, refetch: refetchLocations, isFetching: locationsLoading } = useQuery<KrogerLocation[]>({
     queryKey: ["/api/kroger/locations", zipCode],
+    queryFn: async () => {
+      const res = await fetch(`/api/kroger/locations?zipCode=${encodeURIComponent(zipCode)}`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        throw new Error("Failed to fetch locations");
+      }
+      return res.json();
+    },
     enabled: false,
   });
 

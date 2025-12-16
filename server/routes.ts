@@ -4,6 +4,7 @@ import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replitAuth";
 import { searchUSDAFoods } from "./usda";
 import { krogerService } from "./kroger";
+import { searchOpenFoodFacts, getProductByBarcode } from "./openFoodFacts";
 import { 
   insertRecipeSchema, 
   insertFoodSchema, 
@@ -151,6 +152,29 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/recipes/:id/eating-status", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const recipeId = parseInt(req.params.id);
+      const { isCurrentlyEating } = req.body;
+      
+      if (typeof isCurrentlyEating !== "boolean") {
+        return res.status(400).json({ message: "isCurrentlyEating must be a boolean" });
+      }
+      
+      const updated = await storage.updateRecipeEatingStatus(recipeId, userId, isCurrentlyEating);
+      
+      if (!updated) {
+        return res.status(404).json({ message: "Recipe not found" });
+      }
+      
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating eating status:", error);
+      res.status(500).json({ message: "Failed to update eating status" });
+    }
+  });
+
   // Food routes
   app.get("/api/foods", isAuthenticated, async (req: any, res) => {
     try {
@@ -263,6 +287,59 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error searching USDA:", error);
       res.status(500).json({ message: "Failed to search USDA database" });
+    }
+  });
+
+  // Open Food Facts API routes
+  app.get("/api/openfoodfacts/search", isAuthenticated, async (req: any, res) => {
+    try {
+      const query = req.query.q as string;
+      
+      if (!query || query.length < 2) {
+        return res.json([]);
+      }
+
+      const results = await searchOpenFoodFacts(query, 20);
+      res.json(results);
+    } catch (error) {
+      console.error("Error searching Open Food Facts:", error);
+      res.status(500).json({ message: "Failed to search Open Food Facts database" });
+    }
+  });
+
+  app.get("/api/openfoodfacts/product/:barcode", isAuthenticated, async (req: any, res) => {
+    try {
+      const barcode = req.params.barcode;
+      const product = await getProductByBarcode(barcode);
+      
+      if (!product) {
+        return res.status(404).json({ message: "Product not found" });
+      }
+      
+      res.json(product);
+    } catch (error) {
+      console.error("Error fetching product from Open Food Facts:", error);
+      res.status(500).json({ message: "Failed to fetch product" });
+    }
+  });
+
+  // Toggle recipe eating status
+  app.patch("/api/recipes/:id/eating-status", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const recipeId = parseInt(req.params.id);
+      const { isCurrentlyEating } = req.body;
+
+      const updated = await storage.updateRecipeEatingStatus(recipeId, userId, isCurrentlyEating);
+      
+      if (!updated) {
+        return res.status(404).json({ message: "Recipe not found" });
+      }
+      
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating recipe eating status:", error);
+      res.status(500).json({ message: "Failed to update eating status" });
     }
   });
 

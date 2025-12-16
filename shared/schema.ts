@@ -145,6 +145,7 @@ export const recipes = pgTable("recipes", {
   servings: integer("servings").notNull().default(1),
   tags: text("tags").array(),
   instructions: text("instructions").array(), // Ordered steps
+  isCurrentlyEating: boolean("is_currently_eating").default(false), // Meal planning status
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

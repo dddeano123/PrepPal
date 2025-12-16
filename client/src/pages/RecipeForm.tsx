@@ -151,6 +151,7 @@ export default function RecipeForm() {
     mutationFn: async () => {
       const response = await apiRequest("POST", "/api/generate-instructions", {
         title: form.getValues("title"),
+        description: form.getValues("description") || null,
         ingredients: ingredients.map(ing => ({
           name: ing.displayName,
           amount: ing.amount,
@@ -450,11 +451,14 @@ export default function RecipeForm() {
                     <FormLabel>Description (optional)</FormLabel>
                     <FormControl>
                       <Textarea
-                        placeholder="A brief description of your recipe..."
+                        placeholder="e.g., Quick weeknight stir-fry with bold Asian flavors. Spicy and savory with crispy vegetables."
                         {...field}
                         data-testid="input-recipe-description"
                       />
                     </FormControl>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      💡 Tip: Add details about cooking style, difficulty, flavors, or texture to help AI generate better instructions
+                    </p>
                     <FormMessage />
                   </FormItem>
                 )}

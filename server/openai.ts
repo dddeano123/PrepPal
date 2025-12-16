@@ -9,6 +9,7 @@ interface IngredientInput {
 
 export async function generateCookingInstructions(
   title: string,
+  description: string | null,
   ingredients: IngredientInput[],
   tools: string[]
 ): Promise<string[]> {
@@ -52,6 +53,7 @@ export async function generateCookingInstructions(
   const prompt = `You are a professional chef. Generate clear, step-by-step cooking instructions for the following recipe.
 
 Recipe: ${title}
+${description ? `\nDescription/Context: ${description}` : ''}
 
 Ingredients:
 ${ingredientsList}

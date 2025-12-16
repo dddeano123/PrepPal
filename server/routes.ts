@@ -192,13 +192,45 @@ export async function registerRoutes(
     try {
       const userId = req.user.claims.sub;
 
-      const validatedFood = insertFoodSchema.parse({
-        ...req.body,
+      // Build the food data object explicitly
+      const foodData: any = {
         userId,
-        offProductCode: req.body.offProductCode || null,
-      });
+        name: req.body.name,
+        caloriesPer100g: req.body.caloriesPer100g,
+        proteinPer100g: req.body.proteinPer100g,
+        carbsPer100g: req.body.carbsPer100g,
+        fatPer100g: req.body.fatPer100g,
+        dataType: req.body.dataType || null,
+        isCustom: req.body.isCustom ?? false,
+      };
 
+      // Add optional fields if they exist
+      if (req.body.offProductCode) {
+        foodData.offProductCode = req.body.offProductCode;
+      }
+      if (req.body.fdcId) {
+        foodData.fdcId = req.body.fdcId;
+      }
+      if (req.body.description) {
+        foodData.description = req.body.description;
+      }
+      if (req.body.category) {
+        foodData.category = req.body.category;
+      }
+      if (req.body.krogerProductId) {
+        foodData.krogerProductId = req.body.krogerProductId;
+      }
+      if (req.body.krogerProductName) {
+        foodData.krogerProductName = req.body.krogerProductName;
+      }
+      if (req.body.krogerProductImage) {
+        foodData.krogerProductImage = req.body.krogerProductImage;
+      }
+
+      const validatedFood = insertFoodSchema.parse(foodData);
       const food = await storage.createFood(validatedFood);
+      
+      console.log("Created food with offProductCode:", food.offProductCode);
       res.status(201).json(food);
     } catch (error) {
       console.error("Error creating food:", error);

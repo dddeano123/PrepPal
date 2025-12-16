@@ -290,10 +290,12 @@ export default function RecipeForm() {
         const saveResponse = await apiRequest("POST", "/api/foods", {
           name: bestMatch.brand ? `${bestMatch.productName} (${bestMatch.brand})` : bestMatch.productName,
           dataType: 'Open Food Facts',
+          offProductCode: bestMatch.code,
           caloriesPer100g: bestMatch.caloriesPer100g,
           proteinPer100g: bestMatch.proteinPer100g,
           carbsPer100g: bestMatch.carbsPer100g,
           fatPer100g: bestMatch.fatPer100g,
+          isCustom: false,
         });
 
         const savedFood: Food = await saveResponse.json();

@@ -210,6 +210,7 @@ export function FoodSearchModal({
         description: `${savedFood.name} has been added to your foods.`,
       });
     } catch (error) {
+      console.error("Error saving Open Food Facts product:", error);
       toast({
         title: "Error",
         description: "Failed to save food. Please try again.",

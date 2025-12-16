@@ -195,6 +195,7 @@ export async function registerRoutes(
       const validatedFood = insertFoodSchema.parse({
         ...req.body,
         userId,
+        offProductCode: req.body.offProductCode || null,
       });
 
       const food = await storage.createFood(validatedFood);

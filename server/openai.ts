@@ -1,7 +1,6 @@
 import OpenAI from "openai";
 
 // the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 interface IngredientInput {
   name: string;
@@ -15,6 +14,13 @@ export async function generateCookingInstructions(
   ingredients: IngredientInput[],
   tools: string[]
 ): Promise<string[]> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error("OpenAI API key is not configured. Please set the OPENAI_API_KEY environment variable.");
+  }
+
+  const openai = new OpenAI({ apiKey });
+
   const ingredientsList = ingredients
     .map(ing => {
       if (ing.amount && ing.unit) {
@@ -57,15 +63,37 @@ Respond with JSON in this format: { "instructions": ["Step 1...", "Step 2...", .
       max_completion_tokens: 2048,
     });
 
-    const content = response.choices[0].message.content;
+    const content = response.choices[0]?.message?.content;
     if (!content) {
-      throw new Error("No content in response");
+      throw new Error("OpenAI returned an empty response");
     }
 
-    const result = JSON.parse(content);
-    return result.instructions || [];
+    let result: { instructions?: string[] };
+    try {
+      result = JSON.parse(content);
+    } catch (parseError) {
+      console.error("Failed to parse OpenAI response as JSON:", content);
+      throw new Error("OpenAI returned invalid JSON. Please try again.");
+    }
+
+    if (!Array.isArray(result.instructions)) {
+      console.error("OpenAI response missing instructions array:", result);
+      throw new Error("OpenAI response was missing the expected instructions format. Please try again.");
+    }
+
+    return result.instructions;
   } catch (error) {
-    console.error("Error generating cooking instructions:", error);
-    throw new Error("Failed to generate cooking instructions");
+    if (error instanceof Error) {
+      if (error.message.includes("API key")) {
+        throw error;
+      }
+      if (error.message.includes("invalid JSON") || error.message.includes("missing the expected")) {
+        throw error;
+      }
+      console.error("OpenAI API error:", error.message);
+      throw new Error(`Failed to generate instructions: ${error.message}`);
+    }
+    console.error("Unknown error generating cooking instructions:", error);
+    throw new Error("An unexpected error occurred while generating cooking instructions");
   }
 }

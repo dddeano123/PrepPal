@@ -48,7 +48,6 @@ import {
   ExternalLink,
   Unlink,
 } from "lucide-react";
-import { SiKroger } from "react-icons/si";
 import { formatMacro } from "@/lib/macros";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";

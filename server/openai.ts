@@ -12,12 +12,26 @@ export async function generateCookingInstructions(
   ingredients: IngredientInput[],
   tools: string[]
 ): Promise<string[]> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error("OpenAI API key is not configured. Please set the OPENAI_API_KEY environment variable.");
+  // Try Groq first (fastest, free tier), then DeepSeek, then OpenAI
+  const groqKey = process.env.GROQ_API_KEY;
+  const deepseekKey = process.env.DEEPSEEK_API_KEY;
+  const openaiKey = process.env.OPENAI_API_KEY;
+  
+  if (!groqKey && !deepseekKey && !openaiKey) {
+    throw new Error("No AI API key configured. Please set GROQ_API_KEY, DEEPSEEK_API_KEY, or OPENAI_API_KEY in Secrets.");
   }
 
-  const openai = new OpenAI({ apiKey });
+  const apiKey = groqKey || deepseekKey || openaiKey;
+  const baseURL = groqKey 
+    ? "https://api.groq.com/openai/v1"
+    : deepseekKey 
+    ? "https://api.deepseek.com"
+    : undefined;
+
+  const openai = new OpenAI({
+    apiKey,
+    baseURL,
+  });
 
   const ingredientsList = ingredients
     .map(ing => {
@@ -54,8 +68,15 @@ Generate practical cooking instructions that:
 Respond with JSON in this format: { "instructions": ["Step 1...", "Step 2...", ...] }`;
 
   try {
+    // Select model based on provider
+    const model = groqKey 
+      ? "llama-3.3-70b-versatile"  // Groq's best model for instruction generation
+      : deepseekKey 
+      ? "deepseek-chat"
+      : "gpt-4o";
+    
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model,
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
       max_completion_tokens: 2048,

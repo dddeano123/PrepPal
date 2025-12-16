@@ -7,6 +7,7 @@ import {
   ingredientAliases,
   pantryStaples,
   krogerTokens,
+  recipeTools,
   type User,
   type UpsertUser,
   type Recipe,
@@ -23,6 +24,8 @@ import {
   type InsertPantryStaple,
   type KrogerTokens,
   type InsertKrogerTokens,
+  type RecipeTool,
+  type InsertRecipeTool,
   type RecipeWithIngredients,
   type IngredientWithFood,
 } from "@shared/schema";
@@ -48,7 +51,10 @@ export interface IStorage {
   // Food operations
   getFoods(userId: string): Promise<Food[]>;
   getFood(id: number, userId: string): Promise<Food | undefined>;
+  getFoodByKrogerProductId(userId: string, krogerProductId: string): Promise<Food | undefined>;
+  searchFoods(userId: string, query: string): Promise<Food[]>;
   createFood(food: InsertFood): Promise<Food>;
+  updateFood(id: number, userId: string, food: Partial<InsertFood>): Promise<Food | undefined>;
   deleteFood(id: number, userId: string): Promise<boolean>;
 
   // Shopping list operations
@@ -73,6 +79,12 @@ export interface IStorage {
   upsertKrogerTokens(tokens: InsertKrogerTokens): Promise<KrogerTokens>;
   updateKrogerLocation(userId: string, locationId: string): Promise<void>;
   deleteKrogerTokens(userId: string): Promise<boolean>;
+
+  // Recipe tools operations
+  getRecipeTools(recipeId: number): Promise<RecipeTool[]>;
+  createRecipeTool(tool: InsertRecipeTool): Promise<RecipeTool>;
+  updateRecipeTools(recipeId: number, toolsData: InsertRecipeTool[]): Promise<void>;
+  deleteRecipeTool(id: number): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -109,9 +121,11 @@ export class DatabaseStorage implements IStorage {
 
     for (const recipe of allRecipes) {
       const recipeIngredients = await this.getIngredients(recipe.id);
+      const tools = await this.getRecipeTools(recipe.id);
       recipesWithIngredients.push({
         ...recipe,
         ingredients: recipeIngredients,
+        tools,
       });
     }
 
@@ -127,9 +141,11 @@ export class DatabaseStorage implements IStorage {
     if (!recipe) return undefined;
 
     const recipeIngredients = await this.getIngredients(recipe.id);
+    const tools = await this.getRecipeTools(recipe.id);
     return {
       ...recipe,
       ingredients: recipeIngredients,
+      tools,
     };
   }
 
@@ -215,6 +231,9 @@ export class DatabaseStorage implements IStorage {
         original.ingredients.map((ing, index) => ({
           recipeId: duplicated.id,
           foodId: ing.foodId,
+          krogerProductId: ing.krogerProductId,
+          krogerProductName: ing.krogerProductName,
+          krogerProductImage: ing.krogerProductImage,
           displayName: ing.displayName,
           amount: ing.amount,
           unit: ing.unit,
@@ -222,6 +241,18 @@ export class DatabaseStorage implements IStorage {
           sortOrder: index,
           category: ing.category,
           isPantryStaple: ing.isPantryStaple,
+        }))
+      );
+    }
+
+    // Copy tools as well
+    if (original.tools && original.tools.length > 0) {
+      await db.insert(recipeTools).values(
+        original.tools.map((tool, index) => ({
+          recipeId: duplicated.id,
+          name: tool.name,
+          notes: tool.notes,
+          sortOrder: index,
         }))
       );
     }
@@ -280,6 +311,32 @@ export class DatabaseStorage implements IStorage {
       .values(foodData)
       .returning();
     return food;
+  }
+
+  async getFoodByKrogerProductId(userId: string, krogerProductId: string): Promise<Food | undefined> {
+    const [food] = await db
+      .select()
+      .from(foods)
+      .where(and(eq(foods.userId, userId), eq(foods.krogerProductId, krogerProductId)));
+    return food;
+  }
+
+  async searchFoods(userId: string, query: string): Promise<Food[]> {
+    return await db
+      .select()
+      .from(foods)
+      .where(and(eq(foods.userId, userId), ilike(foods.name, `%${query}%`)))
+      .orderBy(foods.name)
+      .limit(20);
+  }
+
+  async updateFood(id: number, userId: string, foodData: Partial<InsertFood>): Promise<Food | undefined> {
+    const [updated] = await db
+      .update(foods)
+      .set(foodData)
+      .where(and(eq(foods.id, id), eq(foods.userId, userId)))
+      .returning();
+    return updated;
   }
 
   async deleteFood(id: number, userId: string): Promise<boolean> {
@@ -442,6 +499,46 @@ export class DatabaseStorage implements IStorage {
     const result = await db
       .delete(krogerTokens)
       .where(eq(krogerTokens.userId, userId))
+      .returning();
+    return result.length > 0;
+  }
+
+  // Recipe tools operations
+  async getRecipeTools(recipeId: number): Promise<RecipeTool[]> {
+    return await db
+      .select()
+      .from(recipeTools)
+      .where(eq(recipeTools.recipeId, recipeId))
+      .orderBy(recipeTools.sortOrder);
+  }
+
+  async createRecipeTool(toolData: InsertRecipeTool): Promise<RecipeTool> {
+    const [tool] = await db
+      .insert(recipeTools)
+      .values(toolData)
+      .returning();
+    return tool;
+  }
+
+  async updateRecipeTools(recipeId: number, toolsData: InsertRecipeTool[]): Promise<void> {
+    // Delete existing tools and insert new ones
+    await db.delete(recipeTools).where(eq(recipeTools.recipeId, recipeId));
+    
+    if (toolsData.length > 0) {
+      await db.insert(recipeTools).values(
+        toolsData.map((tool, index) => ({
+          ...tool,
+          recipeId,
+          sortOrder: index,
+        }))
+      );
+    }
+  }
+
+  async deleteRecipeTool(id: number): Promise<boolean> {
+    const result = await db
+      .delete(recipeTools)
+      .where(eq(recipeTools.id, id))
       .returning();
     return result.length > 0;
   }

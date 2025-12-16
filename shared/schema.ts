@@ -39,20 +39,85 @@ export const users = pgTable("users", {
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
 
-// Foods table - stores USDA food data locally
+// Standardized units with gram conversions
+export const UNIT_CONVERSIONS: Record<string, number> = {
+  // Weight units (exact conversions)
+  'g': 1,
+  'kg': 1000,
+  'oz': 28.3495,
+  'lb': 453.592,
+  // Volume units (approximate for water-like density, user can adjust)
+  'ml': 1,
+  'l': 1000,
+  'tsp': 5,
+  'tbsp': 15,
+  'cup': 240,
+  'fl oz': 30,
+  'pint': 473,
+  'quart': 946,
+  // Count units (will need density/weight per item)
+  'piece': 0, // Requires manual gram entry
+  'slice': 0,
+  'whole': 0,
+};
+
+export const UNIT_LABELS: Record<string, string> = {
+  'g': 'grams (g)',
+  'kg': 'kilograms (kg)',
+  'oz': 'ounces (oz)',
+  'lb': 'pounds (lb)',
+  'ml': 'milliliters (ml)',
+  'l': 'liters (l)',
+  'tsp': 'teaspoon (tsp)',
+  'tbsp': 'tablespoon (tbsp)',
+  'cup': 'cups',
+  'fl oz': 'fluid ounces (fl oz)',
+  'pint': 'pints',
+  'quart': 'quarts',
+  'piece': 'piece(s)',
+  'slice': 'slice(s)',
+  'whole': 'whole',
+};
+
+export const UNIT_CATEGORIES = {
+  weight: ['g', 'kg', 'oz', 'lb'],
+  volume: ['ml', 'l', 'tsp', 'tbsp', 'cup', 'fl oz', 'pint', 'quart'],
+  count: ['piece', 'slice', 'whole'],
+};
+
+// Helper function to convert amount + unit to grams
+export function convertToGrams(amount: number, unit: string, gramsPerUnit?: number): number {
+  const conversion = UNIT_CONVERSIONS[unit];
+  if (conversion === 0 && gramsPerUnit) {
+    // Count-based unit with custom density
+    return amount * gramsPerUnit;
+  }
+  if (conversion > 0) {
+    return amount * conversion;
+  }
+  // Fallback: assume the amount is already in grams
+  return amount;
+}
+
+// Foods table - stores USDA food data locally OR custom user-defined nutrition
 export const foods = pgTable("foods", {
   id: serial("id").primaryKey(),
   userId: varchar("user_id").notNull().references(() => users.id),
   fdcId: integer("fdc_id"), // USDA FoodData Central ID (null for custom foods)
+  krogerProductId: text("kroger_product_id"), // Kroger product UPC for cart integration
+  krogerProductName: text("kroger_product_name"), // Display name from Kroger
+  krogerProductImage: text("kroger_product_image"), // Product image URL
   name: text("name").notNull(),
   description: text("description"),
-  dataType: text("data_type"), // Foundation, SR Legacy, Branded, etc.
+  dataType: text("data_type"), // Foundation, SR Legacy, Branded, Custom
   caloriesPer100g: real("calories_per_100g").notNull(),
   proteinPer100g: real("protein_per_100g").notNull(),
   carbsPer100g: real("carbs_per_100g").notNull(),
   fatPer100g: real("fat_per_100g").notNull(),
   isCustom: boolean("is_custom").default(false),
   category: text("category"), // meat, dairy, produce, pantry, etc.
+  defaultUnit: text("default_unit"), // Preferred unit for this food
+  gramsPerUnit: real("grams_per_unit"), // For count-based units (e.g., 1 egg = 50g)
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -90,6 +155,7 @@ export const recipesRelations = relations(recipes, ({ one, many }) => ({
     references: [users.id],
   }),
   ingredients: many(ingredients),
+  tools: many(recipeTools),
 }));
 
 export const insertRecipeSchema = createInsertSchema(recipes).omit({
@@ -106,9 +172,12 @@ export const ingredients = pgTable("ingredients", {
   id: serial("id").primaryKey(),
   recipeId: integer("recipe_id").notNull().references(() => recipes.id, { onDelete: "cascade" }),
   foodId: integer("food_id").references(() => foods.id), // null if unmatched
+  krogerProductId: text("kroger_product_id"), // Direct Kroger product link for cart
+  krogerProductName: text("kroger_product_name"), // Display name from Kroger
+  krogerProductImage: text("kroger_product_image"), // Product image URL
   displayName: text("display_name").notNull(),
   amount: real("amount"), // Human readable amount
-  unit: text("unit"), // Human readable unit (cups, tbsp, etc.)
+  unit: text("unit"), // Standardized unit from UNIT_CONVERSIONS
   grams: real("grams").notNull(), // Authoritative for macro calculation
   sortOrder: integer("sort_order").default(0),
   category: text("category"), // For shopping list grouping
@@ -234,9 +303,33 @@ export const insertKrogerTokensSchema = createInsertSchema(krogerTokens).omit({
 export type InsertKrogerTokens = z.infer<typeof insertKrogerTokensSchema>;
 export type KrogerTokens = typeof krogerTokens.$inferSelect;
 
+// Recipe tools table - cooking equipment needed for recipes
+export const recipeTools = pgTable("recipe_tools", {
+  id: serial("id").primaryKey(),
+  recipeId: integer("recipe_id").notNull().references(() => recipes.id, { onDelete: "cascade" }),
+  name: text("name").notNull(), // e.g., "Rice Cooker", "Slow Cooker", "Cast Iron Pan"
+  notes: text("notes"), // Optional notes like "6 quart" or "medium heat"
+  sortOrder: integer("sort_order").default(0),
+});
+
+export const recipeToolsRelations = relations(recipeTools, ({ one }) => ({
+  recipe: one(recipes, {
+    fields: [recipeTools.recipeId],
+    references: [recipes.id],
+  }),
+}));
+
+export const insertRecipeToolSchema = createInsertSchema(recipeTools).omit({
+  id: true,
+});
+
+export type InsertRecipeTool = z.infer<typeof insertRecipeToolSchema>;
+export type RecipeTool = typeof recipeTools.$inferSelect;
+
 // Extended types for frontend use
 export type RecipeWithIngredients = Recipe & {
   ingredients: (Ingredient & { food: Food | null })[];
+  tools?: RecipeTool[];
 };
 
 export type IngredientWithFood = Ingredient & {

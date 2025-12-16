@@ -4,7 +4,15 @@ import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replitAuth";
 import { searchUSDAFoods } from "./usda";
 import { krogerService } from "./kroger";
-import { insertRecipeSchema, insertFoodSchema, insertIngredientAliasSchema, insertPantryStapleSchema } from "@shared/schema";
+import { 
+  insertRecipeSchema, 
+  insertFoodSchema, 
+  insertIngredientAliasSchema, 
+  insertPantryStapleSchema,
+  UNIT_CONVERSIONS,
+  UNIT_LABELS,
+  UNIT_CATEGORIES
+} from "@shared/schema";
 import { z } from "zod";
 import crypto from "crypto";
 
@@ -59,7 +67,7 @@ export async function registerRoutes(
   app.post("/api/recipes", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const { ingredients: ingredientsData, ...recipeData } = req.body;
+      const { ingredients: ingredientsData, tools: toolsData, ...recipeData } = req.body;
 
       const validatedRecipe = insertRecipeSchema.parse({
         ...recipeData,
@@ -67,6 +75,12 @@ export async function registerRoutes(
       });
 
       const recipe = await storage.createRecipe(validatedRecipe, ingredientsData || []);
+      
+      // Save tools if provided
+      if (toolsData && toolsData.length > 0) {
+        await storage.updateRecipeTools(recipe.id, toolsData);
+      }
+      
       res.status(201).json(recipe);
     } catch (error) {
       console.error("Error creating recipe:", error);
@@ -81,12 +95,17 @@ export async function registerRoutes(
     try {
       const userId = req.user.claims.sub;
       const recipeId = parseInt(req.params.id);
-      const { ingredients: ingredientsData, ...recipeData } = req.body;
+      const { ingredients: ingredientsData, tools: toolsData, ...recipeData } = req.body;
 
       const recipe = await storage.updateRecipe(recipeId, userId, recipeData, ingredientsData || []);
       
       if (!recipe) {
         return res.status(404).json({ message: "Recipe not found" });
+      }
+      
+      // Update tools
+      if (toolsData !== undefined) {
+        await storage.updateRecipeTools(recipeId, toolsData || []);
       }
       
       res.json(recipe);
@@ -164,6 +183,54 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/foods/search", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const query = req.query.q as string;
+      
+      if (!query || query.length < 2) {
+        return res.json([]);
+      }
+      
+      const foods = await storage.searchFoods(userId, query);
+      res.json(foods);
+    } catch (error) {
+      console.error("Error searching foods:", error);
+      res.status(500).json({ message: "Failed to search foods" });
+    }
+  });
+
+  app.get("/api/foods/by-kroger-product/:productId", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const productId = req.params.productId;
+      
+      const food = await storage.getFoodByKrogerProductId(userId, productId);
+      res.json(food || null);
+    } catch (error) {
+      console.error("Error fetching food by Kroger product:", error);
+      res.status(500).json({ message: "Failed to fetch food" });
+    }
+  });
+
+  app.put("/api/foods/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const foodId = parseInt(req.params.id);
+      
+      const updated = await storage.updateFood(foodId, userId, req.body);
+      
+      if (!updated) {
+        return res.status(404).json({ message: "Food not found" });
+      }
+      
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating food:", error);
+      res.status(500).json({ message: "Failed to update food" });
+    }
+  });
+
   app.delete("/api/foods/:id", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
@@ -197,6 +264,15 @@ export async function registerRoutes(
       console.error("Error searching USDA:", error);
       res.status(500).json({ message: "Failed to search USDA database" });
     }
+  });
+
+  // Units metadata route
+  app.get("/api/units", (req, res) => {
+    res.json({
+      conversions: UNIT_CONVERSIONS,
+      labels: UNIT_LABELS,
+      categories: UNIT_CATEGORIES,
+    });
   });
 
   // Shopping list routes

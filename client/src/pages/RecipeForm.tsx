@@ -22,7 +22,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { Plus, Trash2, Save, X, GripVertical } from "lucide-react";
+import { Plus, Trash2, Save, X, GripVertical, Sparkles } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { calculateRecipeTotals } from "@/lib/macros";
@@ -141,6 +141,36 @@ export default function RecipeForm() {
       toast({
         title: "Error",
         description: "Failed to save recipe. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const generateInstructionsMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/generate-instructions", {
+        title: form.getValues("title"),
+        ingredients: ingredients.map(ing => ({
+          name: ing.displayName,
+          amount: ing.amount,
+          unit: ing.unit,
+          grams: ing.grams,
+        })),
+        tools,
+      });
+      return await response.json();
+    },
+    onSuccess: (data: { instructions: string[] }) => {
+      setInstructions(data.instructions);
+      toast({
+        title: "Instructions generated",
+        description: "AI has created cooking steps for your recipe.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to generate instructions. Please try again.",
         variant: "destructive",
       });
     },
@@ -524,16 +554,29 @@ export default function RecipeForm() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-2">
               <CardTitle>Instructions</CardTitle>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={addInstruction}
-                data-testid="button-add-instruction"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Add Step
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => generateInstructionsMutation.mutate()}
+                  disabled={generateInstructionsMutation.isPending || ingredients.length === 0 || !form.getValues("title")}
+                  data-testid="button-generate-instructions"
+                >
+                  <Sparkles className="h-4 w-4 mr-2" />
+                  {generateInstructionsMutation.isPending ? "Generating..." : "Auto-Generate"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={addInstruction}
+                  data-testid="button-add-instruction"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Step
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
               {instructions.length > 0 ? (

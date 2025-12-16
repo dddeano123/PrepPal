@@ -5,6 +5,7 @@ import { setupAuth, isAuthenticated } from "./replitAuth";
 import { searchUSDAFoods } from "./usda";
 import { krogerService } from "./kroger";
 import { searchOpenFoodFacts, getProductByBarcode } from "./openFoodFacts";
+import { generateCookingInstructions } from "./openai";
 import { 
   insertRecipeSchema, 
   insertFoodSchema, 
@@ -572,6 +573,28 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error checking pantry staple:", error);
       res.status(500).json({ message: "Failed to check pantry staple" });
+    }
+  });
+
+  // ==================== AI Instructions Route ====================
+  
+  app.post("/api/generate-instructions", isAuthenticated, async (req: any, res) => {
+    try {
+      const { title, ingredients, tools } = req.body;
+      
+      if (!title) {
+        return res.status(400).json({ message: "Recipe title is required" });
+      }
+      
+      if (!ingredients || ingredients.length === 0) {
+        return res.status(400).json({ message: "At least one ingredient is required" });
+      }
+      
+      const instructions = await generateCookingInstructions(title, ingredients, tools || []);
+      res.json({ instructions });
+    } catch (error) {
+      console.error("Error generating instructions:", error);
+      res.status(500).json({ message: "Failed to generate instructions" });
     }
   });
 

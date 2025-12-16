@@ -6,10 +6,10 @@ import { searchUSDAFoods } from "./usda";
 import { krogerService } from "./kroger";
 import { searchOpenFoodFacts, getProductByBarcode } from "./openFoodFacts";
 import { generateCookingInstructions } from "./openai";
-import { 
-  insertRecipeSchema, 
-  insertFoodSchema, 
-  insertIngredientAliasSchema, 
+import {
+  insertRecipeSchema,
+  insertFoodSchema,
+  insertIngredientAliasSchema,
   insertPantryStapleSchema,
   UNIT_CONVERSIONS,
   UNIT_LABELS,
@@ -981,7 +981,7 @@ export async function registerRoutes(
       if (!result.success) {
         // Return structured error for client errors
         if (result.status >= 400 && result.status < 500) {
-          return res.status(result.status).json({ 
+          return res.status(result.status).json({
             message: "Could not add items to cart. Some products may be unavailable.",
             error: result.error
           });

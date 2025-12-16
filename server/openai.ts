@@ -1,7 +1,5 @@
 import OpenAI from "openai";
 
-// the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
-
 interface IngredientInput {
   name: string;
   amount?: number;
@@ -57,7 +55,7 @@ Respond with JSON in this format: { "instructions": ["Step 1...", "Step 2...", .
 
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-5",
+      model: "gpt-4o",
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
       max_completion_tokens: 2048,

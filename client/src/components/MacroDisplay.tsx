@@ -134,27 +134,20 @@ export function MacroSummaryCard({ macros, servings, className }: MacroSummaryCa
         </span>
       </div>
       <MacroDisplay macros={perServing} size="lg" perServing />
-      <FatSecretAttribution className="mt-4" />
+      <NutritionAttribution className="mt-4" />
     </div>
   );
 }
 
-export function FatSecretAttribution({ className }: { className?: string }) {
+export function NutritionAttribution({ className }: { className?: string }) {
   return (
     <div className={cn("flex justify-center", className)}>
-      <a 
-        href="https://www.fatsecret.com" 
-        target="_blank" 
-        rel="noopener noreferrer"
-        className="opacity-60 hover:opacity-100 transition-opacity"
-        data-testid="link-fatsecret-attribution"
+      <span 
+        className="text-xs text-muted-foreground opacity-60"
+        data-testid="text-nutrition-attribution"
       >
-        <img 
-          src="https://platform.fatsecret.com/api/static/images/powered_by_fatsecret.svg" 
-          alt="Powered by FatSecret"
-          className="h-5"
-        />
-      </a>
+        Nutrition data from Kroger & USDA
+      </span>
     </div>
   );
 }

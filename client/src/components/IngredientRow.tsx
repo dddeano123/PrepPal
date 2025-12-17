@@ -8,6 +8,22 @@ import { formatMacro, calculateIngredientMacros } from "@/lib/macros";
 import type { Food } from "@shared/schema";
 import { UNIT_CONVERSIONS, UNIT_LABELS, UNIT_CATEGORIES } from "@shared/schema";
 
+interface KrogerNutrient {
+  code: string;
+  description: string;
+  displayName: string;
+  quantity?: number;
+  unitOfMeasure: { code: string; name: string; abbreviation?: string };
+}
+
+interface KrogerNutritionInfo {
+  servingSize: {
+    quantity: number;
+    unitOfMeasure: { code: string; name: string; abbreviation?: string };
+  };
+  nutrients: KrogerNutrient[];
+}
+
 interface KrogerProduct {
   productId: string;
   upc: string;
@@ -15,6 +31,7 @@ interface KrogerProduct {
   brand?: string;
   images?: { perspective: string; sizes: { size: string; url: string }[] }[];
   items?: { price?: { regular: number; promo?: number }; size?: string }[];
+  nutritionInformation?: KrogerNutritionInfo[];
 }
 
 // Flexible ingredient type for the row - works for both new/edit and display

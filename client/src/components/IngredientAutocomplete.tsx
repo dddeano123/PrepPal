@@ -4,6 +4,22 @@ import { Input } from "@/components/ui/input";
 import { Loader2, Search, ShoppingCart, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+interface KrogerNutrient {
+  code: string;
+  description: string;
+  displayName: string;
+  quantity?: number;
+  unitOfMeasure: { code: string; name: string; abbreviation?: string };
+}
+
+interface KrogerNutritionInfo {
+  servingSize: {
+    quantity: number;
+    unitOfMeasure: { code: string; name: string; abbreviation?: string };
+  };
+  nutrients: KrogerNutrient[];
+}
+
 interface KrogerProduct {
   productId: string;
   upc: string;
@@ -11,6 +27,7 @@ interface KrogerProduct {
   brand?: string;
   images?: { perspective: string; sizes: { size: string; url: string }[] }[];
   items?: { price?: { regular: number; promo?: number }; size?: string }[];
+  nutritionInformation?: KrogerNutritionInfo[];
 }
 
 interface IngredientAutocompleteProps {

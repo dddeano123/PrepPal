@@ -29,6 +29,23 @@ import { useToast } from "@/hooks/use-toast";
 import { calculateRecipeTotals } from "@/lib/macros";
 import type { RecipeWithIngredients, Food, OFFSearchResult } from "@shared/schema";
 
+interface KrogerNutrient {
+  code: string;
+  description: string;
+  displayName: string;
+  quantity?: number;
+  percentDailyIntake?: number;
+  unitOfMeasure: { code: string; name: string; abbreviation?: string };
+}
+
+interface KrogerNutritionInfo {
+  servingSize: {
+    quantity: number;
+    unitOfMeasure: { code: string; name: string; abbreviation?: string };
+  };
+  nutrients: KrogerNutrient[];
+}
+
 interface KrogerProduct {
   productId: string;
   upc: string;
@@ -36,6 +53,7 @@ interface KrogerProduct {
   brand?: string;
   images?: { perspective: string; sizes: { size: string; url: string }[] }[];
   items?: { price?: { regular: number; promo?: number }; size?: string }[];
+  nutritionInformation?: KrogerNutritionInfo[];
 }
 
 const recipeFormSchema = z.object({
@@ -231,7 +249,7 @@ export default function RecipeForm() {
     setEditingIngredientIndex(null);
   };
 
-  // Handle Kroger product selection - use FatSecret barcode/search, fall back to USDA for whole foods
+  // Handle Kroger product selection - extract nutrition from Kroger data, fall back to USDA for whole foods
   const handleKrogerProductSelect = useCallback(async (index: number, product: KrogerProduct) => {
     updateIngredient(index, { 
       displayName: product.description,
@@ -239,6 +257,92 @@ export default function RecipeForm() {
     });
 
     setAutoMatchingIndices(prev => new Set(prev).add(index));
+
+    // Helper to extract nutrition from Kroger product data
+    const extractKrogerNutrition = (nutritionInfo: KrogerNutritionInfo[]): {
+      calories: number;
+      protein: number;
+      carbs: number;
+      fat: number;
+      servingSize: number;
+      servingUnit: string;
+    } | null => {
+      if (!nutritionInfo || nutritionInfo.length === 0) return null;
+      
+      const info = nutritionInfo[0];
+      const nutrients = info.nutrients || [];
+      
+      const getNutrient = (codes: string[]): number => {
+        for (const code of codes) {
+          const nutrient = nutrients.find(n => n.code === code);
+          if (nutrient && nutrient.quantity !== undefined) {
+            return nutrient.quantity;
+          }
+        }
+        return 0;
+      };
+      
+      // Kroger nutrient codes: ENER- for calories, PRO- for protein, CHO- for carbs, FAT for fat
+      const calories = getNutrient(['ENER-', 'ENER', 'ENRC']);
+      const protein = getNutrient(['PRO-', 'PRO', 'PROCNT']);
+      const carbs = getNutrient(['CHO-', 'CHO', 'CHOCDF']);
+      const fat = getNutrient(['FAT', 'FATNLEA']);
+      
+      if (calories === 0 && protein === 0 && carbs === 0 && fat === 0) {
+        return null;
+      }
+      
+      return {
+        calories,
+        protein,
+        carbs,
+        fat,
+        servingSize: info.servingSize?.quantity || 1,
+        servingUnit: info.servingSize?.unitOfMeasure?.abbreviation || info.servingSize?.unitOfMeasure?.name || 'serving',
+      };
+    };
+
+    // Helper to estimate grams per serving from Kroger serving data
+    // Returns null if conversion is unreliable (volumetric units without density)
+    const estimateGramsPerServing = (servingSize: number, servingUnit: string): number | null => {
+      const unitLower = servingUnit.toLowerCase().trim();
+      
+      // Direct weight units - reliable conversion
+      if (unitLower === 'g' || unitLower === 'gram' || unitLower === 'grams' || unitLower === 'grm') {
+        return servingSize;
+      }
+      if (unitLower === 'oz' || unitLower === 'ounce' || unitLower === 'ounces') {
+        return servingSize * 28.35;
+      }
+      if (unitLower === 'lb' || unitLower === 'pound' || unitLower === 'pounds') {
+        return servingSize * 453.59;
+      }
+      
+      // Volumetric units - unreliable without density data, return null to trigger USDA fallback
+      // This ensures accuracy over estimation
+      if (unitLower.includes('cup') || unitLower.includes('tbsp') || unitLower.includes('tsp') ||
+          unitLower.includes('tablespoon') || unitLower.includes('teaspoon') ||
+          unitLower.includes('ml') || unitLower.includes('l') || unitLower.includes('fl')) {
+        console.log(`Volumetric serving unit "${servingUnit}" - falling back to USDA for accurate conversion`);
+        return null;
+      }
+      
+      // Count-based units (piece, slice, etc.) - unreliable
+      if (unitLower.includes('piece') || unitLower.includes('slice') || unitLower.includes('each') ||
+          unitLower.includes('serving') || unitLower.includes('ct') || unitLower.includes('count')) {
+        console.log(`Count-based serving unit "${servingUnit}" - falling back to USDA for accurate conversion`);
+        return null;
+      }
+      
+      console.log(`Unknown serving unit "${servingUnit}" - falling back to USDA`);
+      return null;
+    };
+
+    // Helper to convert serving-based nutrition to per-100g
+    const convertToPer100g = (value: number, gramsPerServing: number): number => {
+      if (gramsPerServing <= 0) return value;
+      return (value / gramsPerServing) * 100;
+    };
 
     // Helper to clean product description for searching
     const cleanDescription = (desc: string): string => {
@@ -257,109 +361,76 @@ export default function RecipeForm() {
     };
 
     // Helper to check if result name contains the primary ingredient word
-    // Uses word boundary matching to avoid "spinach baby leaves" matching "baby carrots"
     const containsKeyword = (resultName: string, searchTerm: string): boolean => {
       const resultLower = resultName.toLowerCase();
       const searchWords = searchTerm.toLowerCase().split(' ').filter(w => w.length >= 3);
       
-      // Get the most important ingredient word (usually last or first non-descriptor)
       const descriptors = ['cut', 'peeled', 'sliced', 'diced', 'chopped', 'fresh', 'frozen', 'raw', 'cooked', 'baby', 'mini', 'large', 'small'];
       const importantWords = searchWords.filter(w => !descriptors.includes(w));
       const primaryWord = importantWords.length > 0 ? importantWords[importantWords.length - 1] : searchWords[searchWords.length - 1];
       
       if (!primaryWord) return false;
       
-      // Check if primary word appears as a whole word (with word boundaries)
       const wordBoundaryRegex = new RegExp(`\\b${primaryWord}s?\\b`, 'i');
       return wordBoundaryRegex.test(resultLower);
     };
 
     try {
-      // STEP 1: Try FatSecret barcode lookup using Kroger product UPC
-      if (product.upc) {
-        console.log(`Trying FatSecret barcode lookup for UPC: ${product.upc}`);
-        const barcodeResponse = await fetch(`/api/fatsecret/barcode/${product.upc}`);
+      // STEP 1: Extract nutrition directly from Kroger product data (preferred - verified manufacturer data)
+      if (product.nutritionInformation) {
+        console.log(`Extracting nutrition from Kroger product data for: ${product.description}`);
+        const krogerNutrition = extractKrogerNutrition(product.nutritionInformation);
         
-        if (barcodeResponse.ok) {
-          const exactMatch = await barcodeResponse.json();
+        if (krogerNutrition) {
+          const { calories, protein, carbs, fat, servingSize, servingUnit } = krogerNutrition;
           
-          if (exactMatch.caloriesPer100g > 0 || exactMatch.proteinPer100g > 0) {
-            const saveResponse = await apiRequest("POST", "/api/foods", {
-              name: exactMatch.brandName 
-                ? `${exactMatch.foodName} (${exactMatch.brandName})` 
-                : exactMatch.foodName,
-              dataType: 'FatSecret',
-              caloriesPer100g: exactMatch.caloriesPer100g,
-              proteinPer100g: exactMatch.proteinPer100g,
-              carbsPer100g: exactMatch.carbsPer100g,
-              fatPer100g: exactMatch.fatPer100g,
-              isCustom: false,
-            });
+          // Try to convert serving size to grams - returns null if unreliable
+          const gramsPerServing = estimateGramsPerServing(servingSize, servingUnit);
+          
+          if (gramsPerServing !== null) {
+            // Convert to per-100g for consistency
+            const caloriesPer100g = Math.round(convertToPer100g(calories, gramsPerServing) * 10) / 10;
+            const proteinPer100g = Math.round(convertToPer100g(protein, gramsPerServing) * 10) / 10;
+            const carbsPer100g = Math.round(convertToPer100g(carbs, gramsPerServing) * 10) / 10;
+            const fatPer100g = Math.round(convertToPer100g(fat, gramsPerServing) * 10) / 10;
+            
+            console.log(`Kroger nutrition converted: ${gramsPerServing}g serving → cal=${caloriesPer100g}, prot=${proteinPer100g}, carb=${carbsPer100g}, fat=${fatPer100g} per 100g`);
+            
+            if (caloriesPer100g > 0 || proteinPer100g > 0) {
+              const saveResponse = await apiRequest("POST", "/api/foods", {
+                name: product.description,
+                dataType: 'Kroger',
+                krogerProductId: product.productId,
+                krogerProductName: product.description,
+                caloriesPer100g,
+                proteinPer100g,
+                carbsPer100g,
+                fatPer100g,
+                isCustom: false,
+              });
 
-            const savedFood: Food = await saveResponse.json();
-            
-            updateIngredient(index, {
-              foodId: savedFood.id,
-              food: savedFood,
-            });
-            
-            toast({
-              title: "Exact match found",
-              description: `Linked to ${savedFood.name} via barcode`,
-            });
-            return;
+              const savedFood: Food = await saveResponse.json();
+              
+              updateIngredient(index, {
+                foodId: savedFood.id,
+                food: savedFood,
+              });
+              
+              toast({
+                title: "Nutrition matched",
+                description: `Linked to ${product.description} (Kroger data)`,
+              });
+              return;
+            }
           }
-        } else {
-          console.log(`FatSecret barcode lookup failed for UPC: ${product.upc}`);
+          // If gramsPerServing is null, fall through to USDA search
         }
       }
 
+      // STEP 2: Fall back to USDA search for whole foods (raw meats, produce without nutrition labels)
       const searchTerm = cleanDescription(product.description).split(' ').slice(0, 4).join(' ');
-      console.log(`Searching with term: "${searchTerm}"`);
+      console.log(`No Kroger nutrition, searching USDA with term: "${searchTerm}"`);
       
-      // STEP 2: Try FatSecret name search
-      if (searchTerm.length >= 3) {
-        const response = await fetch(`/api/fatsecret/search?q=${encodeURIComponent(searchTerm)}`);
-        
-        if (response.ok) {
-          const results = await response.json();
-          
-          // Find first result that contains our search keyword
-          const validMatch = results.find((r: any) => 
-            (r.caloriesPer100g > 0 || r.proteinPer100g > 0) && 
-            containsKeyword(r.foodName, searchTerm)
-          );
-          
-          if (validMatch) {
-            const saveResponse = await apiRequest("POST", "/api/foods", {
-              name: validMatch.brandName 
-                ? `${validMatch.foodName} (${validMatch.brandName})` 
-                : validMatch.foodName,
-              dataType: 'FatSecret',
-              caloriesPer100g: validMatch.caloriesPer100g,
-              proteinPer100g: validMatch.proteinPer100g,
-              carbsPer100g: validMatch.carbsPer100g,
-              fatPer100g: validMatch.fatPer100g,
-              isCustom: false,
-            });
-
-            const savedFood: Food = await saveResponse.json();
-            
-            updateIngredient(index, {
-              foodId: savedFood.id,
-              food: savedFood,
-            });
-            
-            toast({
-              title: "Matched from FatSecret",
-              description: `Linked to ${savedFood.name}`,
-            });
-            return;
-          }
-        }
-      }
-
-      // STEP 3: Fall back to USDA search for whole foods (raw meats, produce)
       if (searchTerm.length >= 3) {
         const usdaResponse = await fetch(`/api/usda/search?q=${encodeURIComponent(searchTerm)}`);
         

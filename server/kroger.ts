@@ -10,6 +10,29 @@ interface KrogerTokens {
   token_type: string;
 }
 
+interface KrogerNutrient {
+  code: string;
+  description: string;
+  displayName: string;
+  quantity?: number;
+  percentDailyIntake?: number;
+  precision?: Record<string, unknown>;
+  unitOfMeasure: { code: string; name: string; abbreviation?: string };
+}
+
+interface KrogerNutritionInfo {
+  ingredientStatement?: string;
+  dailyValueIntakeReference?: string;
+  servingSize: {
+    quantity: number;
+    unitOfMeasure: { code: string; name: string; abbreviation?: string };
+  };
+  nutrients: KrogerNutrient[];
+  preparationState?: { code: string; name: string };
+  servingsPerPackage?: { description: string; value: number };
+  nutritionalRating?: string;
+}
+
 interface KrogerProduct {
   productId: string;
   upc: string;
@@ -18,6 +41,7 @@ interface KrogerProduct {
   images?: { perspective: string; sizes: { size: string; url: string }[] }[];
   items?: { price?: { regular: number; promo?: number }; size?: string }[];
   aisleLocations?: { bayNumber?: string; description?: string; number?: string }[];
+  nutritionInformation?: KrogerNutritionInfo[];
 }
 
 interface KrogerLocation {

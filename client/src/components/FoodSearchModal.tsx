@@ -24,7 +24,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, Check, Plus, Database, PenLine, ArrowLeft } from "lucide-react";
+import { Search, Check, Plus, Database, PenLine, ArrowLeft, ExternalLink } from "lucide-react";
 import { SearchEmptyState } from "./EmptyState";
 import { cn } from "@/lib/utils";
 import type { Food, OFFSearchResult } from "@shared/schema";
@@ -49,6 +49,7 @@ interface FoodSearchModalProps {
   onOpenChange: (open: boolean) => void;
   onSelectFood: (food: Food | OFFSearchResult) => void;
   ingredientName?: string;
+  currentFood?: Food | null;
 }
 
 export function FoodSearchModal({
@@ -56,6 +57,7 @@ export function FoodSearchModal({
   onOpenChange,
   onSelectFood,
   ingredientName = "",
+  currentFood = null,
 }: FoodSearchModalProps) {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<"search" | "custom">("search");
@@ -253,6 +255,38 @@ export function FoodSearchModal({
           </TabsList>
 
           <TabsContent value="search" className="flex-1 flex flex-col mt-4">
+            {currentFood && (
+              <div className="mb-4 p-3 bg-muted/50 rounded-md border">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium">Currently matched to:</p>
+                    <p className="text-sm text-muted-foreground">{currentFood.name}</p>
+                  </div>
+                  {currentFood.offProductCode && (
+                    <a
+                      href={`https://world.openfoodfacts.org/product/${currentFood.offProductCode}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-blue-600 dark:text-blue-400 flex items-center gap-1 hover:underline"
+                    >
+                      View on Open Food Facts
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  )}
+                  {currentFood.fdcId && !currentFood.offProductCode && (
+                    <a
+                      href={`https://fdc.nal.usda.gov/fdc-app.html#/food-details/${currentFood.fdcId}/nutrients`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-blue-600 dark:text-blue-400 flex items-center gap-1 hover:underline"
+                    >
+                      View on USDA FoodData Central
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  )}
+                </div>
+              </div>
+            )}
             <div className="flex gap-2 mb-4">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />

@@ -789,6 +789,11 @@ export default function RecipeForm() {
             ? ingredients[editingIngredientIndex]?.displayName
             : ""
         }
+        currentFood={
+          editingIngredientIndex !== null
+            ? ingredients[editingIngredientIndex]?.food
+            : null
+        }
       />
     </Layout>
   );

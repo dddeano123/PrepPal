@@ -66,7 +66,13 @@ Preferred communication style: Simple, everyday language.
 
 ### External Service Integrations
 
-**USDA FoodData Central API**: Primary source for authoritative nutrition data. Searches Foundation and SR Legacy data types. Extracts calories, protein, carbs, and fat per 100g.
+**FatSecret Platform API**: Primary source for branded food nutrition data. Uses OAuth 1.0 authentication.
+- Barcode lookup (by UPC) for exact product matching
+- Food name search with verified manufacturer data
+- Returns nutrition per serving, converted to per-100g for consistency
+- Requires attribution badge ("Powered by FatSecret") where nutrition data is displayed
+
+**USDA FoodData Central API**: Fallback source for whole foods (produce, meats). Searches Foundation and SR Legacy data types. Extracts calories, protein, carbs, and fat per 100g.
 
 **Replit Auth**: OpenID Connect authentication provider for user login/signup.
 
@@ -77,10 +83,19 @@ Preferred communication style: Simple, everyday language.
 - Store location search by zip code
 - Tokens stored in `kroger_tokens` table with automatic refresh
 
+### Ingredient Matching Flow
+When a user selects a Kroger product:
+1. **FatSecret barcode lookup** - Try exact UPC match first
+2. **FatSecret name search** - Search by cleaned product name with keyword validation
+3. **USDA search** - Fallback for raw ingredients (meats, produce)
+
+Keyword validation ensures the matched food contains the primary ingredient word (e.g., "carrots" must appear in the result name).
+
 ## External Dependencies
 
 ### Third-Party Services
-- **USDA FoodData Central API** - Nutrition data source (requires `USDA_API_KEY` environment variable, defaults to `DEMO_KEY`)
+- **FatSecret Platform API** - Primary nutrition data source (requires `FATSECRET_CONSUMER_KEY`, `FATSECRET_CONSUMER_SECRET`)
+- **USDA FoodData Central API** - Fallback nutrition data (requires `USDA_API_KEY` environment variable, defaults to `DEMO_KEY`)
 - **Replit Auth** - Authentication via OpenID Connect (requires `ISSUER_URL`, `REPL_ID`, `SESSION_SECRET`)
 - **Kroger API** - Shopping cart integration (requires `KROGER_CLIENT_ID`, `KROGER_CLIENT_SECRET`, `KROGER_REDIRECT_URI`)
 

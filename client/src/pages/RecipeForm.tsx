@@ -231,7 +231,7 @@ export default function RecipeForm() {
     setEditingIngredientIndex(null);
   };
 
-  // Handle Kroger product selection - use UPC barcode for exact match, then fall back to name search
+  // Handle Kroger product selection - use FatSecret barcode/search, fall back to USDA for whole foods
   const handleKrogerProductSelect = useCallback(async (index: number, product: KrogerProduct) => {
     updateIngredient(index, { 
       displayName: product.description,
@@ -240,19 +240,55 @@ export default function RecipeForm() {
 
     setAutoMatchingIndices(prev => new Set(prev).add(index));
 
+    // Helper to clean product description for searching
+    const cleanDescription = (desc: string): string => {
+      const commonBrands = [
+        'kroger', 'simple truth', 'private selection', 'heritage farm',
+        'comforts', 'big k', 'check this out', 'psst', 'organic'
+      ];
+      let cleaned = desc.toLowerCase();
+      commonBrands.forEach(brand => {
+        cleaned = cleaned.replace(new RegExp(brand, 'gi'), '');
+      });
+      cleaned = cleaned.replace(/\d+(\.\d+)?\s*(oz|lb|lbs|ct|pack|count|fl\s*oz|ml|g|kg|each|per|pound)/gi, '');
+      cleaned = cleaned.replace(/[^a-zA-Z\s]/g, ' ');
+      cleaned = cleaned.replace(/\s+/g, ' ').trim();
+      return cleaned;
+    };
+
+    // Helper to check if result name contains the primary ingredient word
+    // Uses word boundary matching to avoid "spinach baby leaves" matching "baby carrots"
+    const containsKeyword = (resultName: string, searchTerm: string): boolean => {
+      const resultLower = resultName.toLowerCase();
+      const searchWords = searchTerm.toLowerCase().split(' ').filter(w => w.length >= 3);
+      
+      // Get the most important ingredient word (usually last or first non-descriptor)
+      const descriptors = ['cut', 'peeled', 'sliced', 'diced', 'chopped', 'fresh', 'frozen', 'raw', 'cooked', 'baby', 'mini', 'large', 'small'];
+      const importantWords = searchWords.filter(w => !descriptors.includes(w));
+      const primaryWord = importantWords.length > 0 ? importantWords[importantWords.length - 1] : searchWords[searchWords.length - 1];
+      
+      if (!primaryWord) return false;
+      
+      // Check if primary word appears as a whole word (with word boundaries)
+      const wordBoundaryRegex = new RegExp(`\\b${primaryWord}s?\\b`, 'i');
+      return wordBoundaryRegex.test(resultLower);
+    };
+
     try {
-      // STEP 1: Try exact barcode lookup using Kroger product UPC
+      // STEP 1: Try FatSecret barcode lookup using Kroger product UPC
       if (product.upc) {
-        const barcodeResponse = await fetch(`/api/openfoodfacts/product/${product.upc}`);
+        console.log(`Trying FatSecret barcode lookup for UPC: ${product.upc}`);
+        const barcodeResponse = await fetch(`/api/fatsecret/barcode/${product.upc}`);
         
         if (barcodeResponse.ok) {
-          const exactMatch: OFFSearchResult = await barcodeResponse.json();
+          const exactMatch = await barcodeResponse.json();
           
           if (exactMatch.caloriesPer100g > 0 || exactMatch.proteinPer100g > 0) {
             const saveResponse = await apiRequest("POST", "/api/foods", {
-              name: exactMatch.brand ? `${exactMatch.productName} (${exactMatch.brand})` : exactMatch.productName,
-              dataType: 'Open Food Facts',
-              offProductCode: exactMatch.code,
+              name: exactMatch.brandName 
+                ? `${exactMatch.foodName} (${exactMatch.brandName})` 
+                : exactMatch.foodName,
+              dataType: 'FatSecret',
               caloriesPer100g: exactMatch.caloriesPer100g,
               proteinPer100g: exactMatch.proteinPer100g,
               carbsPer100g: exactMatch.carbsPer100g,
@@ -273,38 +309,69 @@ export default function RecipeForm() {
             });
             return;
           }
+        } else {
+          console.log(`FatSecret barcode lookup failed for UPC: ${product.upc}`);
         }
       }
 
-      // STEP 2: Fall back to USDA search for whole foods (better for raw ingredients)
-      const cleanDescription = (desc: string): string => {
-        const commonBrands = [
-          'kroger', 'simple truth', 'private selection', 'heritage farm',
-          'comforts', 'big k', 'check this out', 'psst'
-        ];
-        let cleaned = desc.toLowerCase();
-        commonBrands.forEach(brand => {
-          cleaned = cleaned.replace(new RegExp(brand, 'gi'), '');
-        });
-        cleaned = cleaned.replace(/\d+(\.\d+)?\s*(oz|lb|lbs|ct|pack|count|fl\s*oz|ml|g|kg|each|per|pound)/gi, '');
-        cleaned = cleaned.replace(/[^a-zA-Z\s]/g, ' ');
-        cleaned = cleaned.replace(/\s+/g, ' ').trim();
-        return cleaned;
-      };
-      
       const searchTerm = cleanDescription(product.description).split(' ').slice(0, 4).join(' ');
+      console.log(`Searching with term: "${searchTerm}"`);
       
+      // STEP 2: Try FatSecret name search
+      if (searchTerm.length >= 3) {
+        const response = await fetch(`/api/fatsecret/search?q=${encodeURIComponent(searchTerm)}`);
+        
+        if (response.ok) {
+          const results = await response.json();
+          
+          // Find first result that contains our search keyword
+          const validMatch = results.find((r: any) => 
+            (r.caloriesPer100g > 0 || r.proteinPer100g > 0) && 
+            containsKeyword(r.foodName, searchTerm)
+          );
+          
+          if (validMatch) {
+            const saveResponse = await apiRequest("POST", "/api/foods", {
+              name: validMatch.brandName 
+                ? `${validMatch.foodName} (${validMatch.brandName})` 
+                : validMatch.foodName,
+              dataType: 'FatSecret',
+              caloriesPer100g: validMatch.caloriesPer100g,
+              proteinPer100g: validMatch.proteinPer100g,
+              carbsPer100g: validMatch.carbsPer100g,
+              fatPer100g: validMatch.fatPer100g,
+              isCustom: false,
+            });
+
+            const savedFood: Food = await saveResponse.json();
+            
+            updateIngredient(index, {
+              foodId: savedFood.id,
+              food: savedFood,
+            });
+            
+            toast({
+              title: "Matched from FatSecret",
+              description: `Linked to ${savedFood.name}`,
+            });
+            return;
+          }
+        }
+      }
+
+      // STEP 3: Fall back to USDA search for whole foods (raw meats, produce)
       if (searchTerm.length >= 3) {
         const usdaResponse = await fetch(`/api/usda/search?q=${encodeURIComponent(searchTerm)}`);
         
         if (usdaResponse.ok) {
           const usdaResults = await usdaResponse.json();
           
-          if (usdaResults.length > 0) {
-            const usdaMatch = usdaResults[0];
-            
+          // Find first result that contains our search keyword
+          const validMatch = usdaResults.find((r: any) => containsKeyword(r.description, searchTerm));
+          
+          if (validMatch) {
             const getNutrient = (id: number) => {
-              const nutrient = usdaMatch.foodNutrients.find((n: any) => n.nutrientId === id);
+              const nutrient = validMatch.foodNutrients.find((n: any) => n.nutrientId === id);
               return nutrient ? nutrient.value : 0;
             };
             
@@ -315,9 +382,9 @@ export default function RecipeForm() {
             
             if (calories > 0 || protein > 0) {
               const saveResponse = await apiRequest("POST", "/api/foods", {
-                name: usdaMatch.description,
-                dataType: usdaMatch.dataType,
-                fdcId: usdaMatch.fdcId,
+                name: validMatch.description,
+                dataType: validMatch.dataType,
+                fdcId: validMatch.fdcId,
                 caloriesPer100g: calories,
                 proteinPer100g: protein,
                 carbsPer100g: carbs,
@@ -334,45 +401,6 @@ export default function RecipeForm() {
               
               toast({
                 title: "Matched from USDA",
-                description: `Linked to ${savedFood.name}`,
-              });
-              return;
-            }
-          }
-        }
-      }
-      
-      // STEP 3: If USDA fails, try Open Food Facts name search as last resort
-      if (searchTerm.length >= 3) {
-        const response = await fetch(`/api/openfoodfacts/search?q=${encodeURIComponent(searchTerm)}`);
-        
-        if (response.ok) {
-          const results: OFFSearchResult[] = await response.json();
-          
-          if (results.length > 0) {
-            const bestMatch = results[0];
-            
-            if (bestMatch.caloriesPer100g > 0 || bestMatch.proteinPer100g > 0) {
-              const saveResponse = await apiRequest("POST", "/api/foods", {
-                name: bestMatch.brand ? `${bestMatch.productName} (${bestMatch.brand})` : bestMatch.productName,
-                dataType: 'Open Food Facts',
-                offProductCode: bestMatch.code,
-                caloriesPer100g: bestMatch.caloriesPer100g,
-                proteinPer100g: bestMatch.proteinPer100g,
-                carbsPer100g: bestMatch.carbsPer100g,
-                fatPer100g: bestMatch.fatPer100g,
-                isCustom: false,
-              });
-
-              const savedFood: Food = await saveResponse.json();
-              
-              updateIngredient(index, {
-                foodId: savedFood.id,
-                food: savedFood,
-              });
-              
-              toast({
-                title: "Matched from Open Food Facts",
                 description: `Linked to ${savedFood.name}`,
               });
               return;

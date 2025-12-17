@@ -231,7 +231,7 @@ export default function RecipeForm() {
     setEditingIngredientIndex(null);
   };
 
-  // Handle Kroger product selection - auto-search Open Food Facts and match nutrition
+  // Handle Kroger product selection - use UPC barcode for exact match, then fall back to name search
   const handleKrogerProductSelect = useCallback(async (index: number, product: KrogerProduct) => {
     updateIngredient(index, { 
       displayName: product.description,
@@ -241,101 +241,22 @@ export default function RecipeForm() {
     setAutoMatchingIndices(prev => new Set(prev).add(index));
 
     try {
-        const cleanDescription = (desc: string): string => {
-          const commonBrands = [
-            'kroger', 'simple truth', 'private selection', 'heritage farm',
-          'comforts', 'big k', 'check this out', 'psst', 'organic', 'natural'
-        ];
-        let cleaned = desc.toLowerCase();
-        commonBrands.forEach(brand => {
-          cleaned = cleaned.replace(new RegExp(brand, 'gi'), '');
-        });
-        cleaned = cleaned.replace(/\d+(\.\d+)?\s*(oz|lb|lbs|ct|pack|count|fl\s*oz|ml|g|kg|each|per|pound)/gi, '');
-        cleaned = cleaned.replace(/[^a-zA-Z\s]/g, ' ');
-        cleaned = cleaned.replace(/\s+/g, ' ').trim();
-        return cleaned;
-      };
-      
-      const searchTerm = cleanDescription(product.description).split(' ').slice(0, 3).join(' ');
-      
-      if (searchTerm.length < 3) {
-        toast({
-          title: "No nutrition match found",
-          description: "You can manually link this ingredient using the Match button.",
-          variant: "default",
-        });
-        return;
-      }
-
-      const response = await fetch(`/api/openfoodfacts/search?q=${encodeURIComponent(searchTerm)}`);
-      
-      if (!response.ok) {
-        throw new Error('Search failed');
-      }
-
-      const results: OFFSearchResult[] = await response.json();
-      
-      // Try Open Food Facts first
-      if (results.length > 0) {
-        const bestMatch = results[0];
+      // STEP 1: Try exact barcode lookup using Kroger product UPC
+      if (product.upc) {
+        const barcodeResponse = await fetch(`/api/openfoodfacts/product/${product.upc}`);
         
-        // If Open Food Facts has valid nutrition data, use it
-        if (bestMatch.caloriesPer100g > 0 || bestMatch.proteinPer100g > 0) {
-          const saveResponse = await apiRequest("POST", "/api/foods", {
-            name: bestMatch.brand ? `${bestMatch.productName} (${bestMatch.brand})` : bestMatch.productName,
-            dataType: 'Open Food Facts',
-            offProductCode: bestMatch.code,
-            caloriesPer100g: bestMatch.caloriesPer100g,
-            proteinPer100g: bestMatch.proteinPer100g,
-            carbsPer100g: bestMatch.carbsPer100g,
-            fatPer100g: bestMatch.fatPer100g,
-            isCustom: false,
-          });
-
-          const savedFood: Food = await saveResponse.json();
+        if (barcodeResponse.ok) {
+          const exactMatch: OFFSearchResult = await barcodeResponse.json();
           
-          updateIngredient(index, {
-            foodId: savedFood.id,
-            food: savedFood,
-          });
-          
-          toast({
-            title: "Auto-matched from Open Food Facts",
-            description: `Linked to ${savedFood.name}`,
-          });
-          return;
-        }
-      }
-      
-      // Fallback to USDA if Open Food Facts didn't work
-      const usdaResponse = await fetch(`/api/usda/search?q=${encodeURIComponent(searchTerm)}`);
-      
-      if (usdaResponse.ok) {
-        const usdaResults = await usdaResponse.json();
-        
-        if (usdaResults.length > 0) {
-          const usdaMatch = usdaResults[0];
-          
-          // Extract macros from USDA nutrient array
-          const getNutrient = (id: number) => {
-            const nutrient = usdaMatch.foodNutrients.find((n: any) => n.nutrientId === id);
-            return nutrient ? nutrient.value : 0;
-          };
-          
-          const calories = getNutrient(1008); // Energy (kcal)
-          const protein = getNutrient(1003);  // Protein
-          const carbs = getNutrient(1005);    // Carbohydrate
-          const fat = getNutrient(1004);      // Total lipid (fat)
-          
-          if (calories > 0 || protein > 0) {
+          if (exactMatch.caloriesPer100g > 0 || exactMatch.proteinPer100g > 0) {
             const saveResponse = await apiRequest("POST", "/api/foods", {
-              name: usdaMatch.description,
-              dataType: usdaMatch.dataType,
-              fdcId: usdaMatch.fdcId,
-              caloriesPer100g: calories,
-              proteinPer100g: protein,
-              carbsPer100g: carbs,
-              fatPer100g: fat,
+              name: exactMatch.brand ? `${exactMatch.productName} (${exactMatch.brand})` : exactMatch.productName,
+              dataType: 'Open Food Facts',
+              offProductCode: exactMatch.code,
+              caloriesPer100g: exactMatch.caloriesPer100g,
+              proteinPer100g: exactMatch.proteinPer100g,
+              carbsPer100g: exactMatch.carbsPer100g,
+              fatPer100g: exactMatch.fatPer100g,
               isCustom: false,
             });
 
@@ -347,15 +268,119 @@ export default function RecipeForm() {
             });
             
             toast({
-              title: "Auto-matched from USDA",
-              description: `Linked to ${savedFood.name}`,
+              title: "Exact match found",
+              description: `Linked to ${savedFood.name} via barcode`,
             });
             return;
           }
         }
       }
+
+      // STEP 2: Fall back to USDA search for whole foods (better for raw ingredients)
+      const cleanDescription = (desc: string): string => {
+        const commonBrands = [
+          'kroger', 'simple truth', 'private selection', 'heritage farm',
+          'comforts', 'big k', 'check this out', 'psst'
+        ];
+        let cleaned = desc.toLowerCase();
+        commonBrands.forEach(brand => {
+          cleaned = cleaned.replace(new RegExp(brand, 'gi'), '');
+        });
+        cleaned = cleaned.replace(/\d+(\.\d+)?\s*(oz|lb|lbs|ct|pack|count|fl\s*oz|ml|g|kg|each|per|pound)/gi, '');
+        cleaned = cleaned.replace(/[^a-zA-Z\s]/g, ' ');
+        cleaned = cleaned.replace(/\s+/g, ' ').trim();
+        return cleaned;
+      };
       
-      // If both sources fail, show manual input message
+      const searchTerm = cleanDescription(product.description).split(' ').slice(0, 4).join(' ');
+      
+      if (searchTerm.length >= 3) {
+        const usdaResponse = await fetch(`/api/usda/search?q=${encodeURIComponent(searchTerm)}`);
+        
+        if (usdaResponse.ok) {
+          const usdaResults = await usdaResponse.json();
+          
+          if (usdaResults.length > 0) {
+            const usdaMatch = usdaResults[0];
+            
+            const getNutrient = (id: number) => {
+              const nutrient = usdaMatch.foodNutrients.find((n: any) => n.nutrientId === id);
+              return nutrient ? nutrient.value : 0;
+            };
+            
+            const calories = getNutrient(1008);
+            const protein = getNutrient(1003);
+            const carbs = getNutrient(1005);
+            const fat = getNutrient(1004);
+            
+            if (calories > 0 || protein > 0) {
+              const saveResponse = await apiRequest("POST", "/api/foods", {
+                name: usdaMatch.description,
+                dataType: usdaMatch.dataType,
+                fdcId: usdaMatch.fdcId,
+                caloriesPer100g: calories,
+                proteinPer100g: protein,
+                carbsPer100g: carbs,
+                fatPer100g: fat,
+                isCustom: false,
+              });
+
+              const savedFood: Food = await saveResponse.json();
+              
+              updateIngredient(index, {
+                foodId: savedFood.id,
+                food: savedFood,
+              });
+              
+              toast({
+                title: "Matched from USDA",
+                description: `Linked to ${savedFood.name}`,
+              });
+              return;
+            }
+          }
+        }
+      }
+      
+      // STEP 3: If USDA fails, try Open Food Facts name search as last resort
+      if (searchTerm.length >= 3) {
+        const response = await fetch(`/api/openfoodfacts/search?q=${encodeURIComponent(searchTerm)}`);
+        
+        if (response.ok) {
+          const results: OFFSearchResult[] = await response.json();
+          
+          if (results.length > 0) {
+            const bestMatch = results[0];
+            
+            if (bestMatch.caloriesPer100g > 0 || bestMatch.proteinPer100g > 0) {
+              const saveResponse = await apiRequest("POST", "/api/foods", {
+                name: bestMatch.brand ? `${bestMatch.productName} (${bestMatch.brand})` : bestMatch.productName,
+                dataType: 'Open Food Facts',
+                offProductCode: bestMatch.code,
+                caloriesPer100g: bestMatch.caloriesPer100g,
+                proteinPer100g: bestMatch.proteinPer100g,
+                carbsPer100g: bestMatch.carbsPer100g,
+                fatPer100g: bestMatch.fatPer100g,
+                isCustom: false,
+              });
+
+              const savedFood: Food = await saveResponse.json();
+              
+              updateIngredient(index, {
+                foodId: savedFood.id,
+                food: savedFood,
+              });
+              
+              toast({
+                title: "Matched from Open Food Facts",
+                description: `Linked to ${savedFood.name}`,
+              });
+              return;
+            }
+          }
+        }
+      }
+      
       toast({
         title: "No nutrition match found",
         description: "You can manually link this ingredient using the Match button.",

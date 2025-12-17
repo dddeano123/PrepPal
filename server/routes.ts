@@ -559,11 +559,21 @@ export async function registerRoutes(
       const stapleData: any = {
         userId,
         name,
-        ...(req.body.category ? { category: req.body.category } : {}),
-        ...(req.body.krogerProductId ? { krogerProductId: req.body.krogerProductId } : {}),
-        ...(req.body.krogerProductName ? { krogerProductName: req.body.krogerProductName } : {}),
-        ...(req.body.krogerProductImage ? { krogerProductImage: req.body.krogerProductImage } : {}),
       };
+
+      // Add optional fields only if they exist
+      if (req.body.category) {
+        stapleData.category = req.body.category;
+      }
+      if (req.body.krogerProductId) {
+        stapleData.krogerProductId = req.body.krogerProductId;
+      }
+      if (req.body.krogerProductName) {
+        stapleData.krogerProductName = req.body.krogerProductName;
+      }
+      if (req.body.krogerProductImage) {
+        stapleData.krogerProductImage = req.body.krogerProductImage;
+      }
 
       const validatedStaple = insertPantryStapleSchema.parse(stapleData);
 

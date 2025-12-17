@@ -17,6 +17,7 @@ import {
   Users,
   ShoppingCart,
   ListOrdered,
+  ExternalLink,
 } from "lucide-react";
 import { calculateRecipeTotals, calculatePerServingMacros, formatMacro } from "@/lib/macros";
 import type { RecipeWithIngredients } from "@shared/schema";
@@ -194,12 +195,47 @@ export default function RecipeDetail() {
                         </div>
                       </div>
                       <div className="flex items-center gap-4">
-                        <span className="font-mono text-sm text-muted-foreground">
-                          {formatMacro(scaledGrams, 0)}g
-                        </span>
                         {ingredient.food && (
-                          <div className="flex gap-3 text-sm font-mono">
-                            <span>{formatMacro((ingredient.food.caloriesPer100g * scaledGrams) / 100, 0)} cal</span>
+                          <div className="space-y-1">
+                            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                              <span className="font-mono">{formatMacro(scaledGrams, 0)}g</span>
+                              <span>•</span>
+                              <span>{formatMacro((ingredient.food.proteinPer100g * scaledGrams) / 100)} protein</span>
+                              <span>•</span>
+                              <span>{formatMacro((ingredient.food.carbsPer100g * scaledGrams) / 100)} carbs</span>
+                              <span>•</span>
+                              <span>{formatMacro((ingredient.food.fatPer100g * scaledGrams) / 100)} fat</span>
+                              <span>•</span>
+                              <span>{formatMacro((ingredient.food.caloriesPer100g * scaledGrams) / 100, 0)} cal</span>
+                            </div>
+                            {ingredient.food.offProductCode && (
+                              <div className="flex items-center gap-1 text-xs">
+                                <span className="text-muted-foreground">Source:</span>
+                                <a
+                                  href={`https://world.openfoodfacts.org/product/${ingredient.food.offProductCode}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 hover:underline inline-flex items-center gap-1"
+                                >
+                                  Open Food Facts
+                                  <ExternalLink className="h-3 w-3" />
+                                </a>
+                              </div>
+                            )}
+                            {ingredient.food.fdcId && !ingredient.food.offProductCode && (
+                              <div className="flex items-center gap-1 text-xs">
+                                <span className="text-muted-foreground">Source:</span>
+                                <a
+                                  href={`https://fdc.nal.usda.gov/fdc-app.html#/food-details/${ingredient.food.fdcId}/nutrients`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 hover:underline inline-flex items-center gap-1"
+                                >
+                                  USDA FoodData Central
+                                  <ExternalLink className="h-3 w-3" />
+                                </a>
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>

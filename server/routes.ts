@@ -18,6 +18,33 @@ import {
 import { z } from "zod";
 import crypto from "crypto";
 
+// Cache for Kroger client credentials token (used for product search without user auth)
+let cachedClientToken: { token: string; expiresAt: number } | null = null;
+
+async function getKrogerClientToken(): Promise<string | null> {
+  if (!krogerService.isConfigured()) {
+    return null;
+  }
+  
+  // Return cached token if still valid (with 5 minute buffer)
+  if (cachedClientToken && cachedClientToken.expiresAt > Date.now() + 300000) {
+    return cachedClientToken.token;
+  }
+  
+  try {
+    const token = await krogerService.getClientCredentialsToken();
+    // Client credentials tokens typically last 30 minutes
+    cachedClientToken = {
+      token,
+      expiresAt: Date.now() + 1800000, // 30 minutes
+    };
+    return token;
+  } catch (error) {
+    console.error("Failed to get Kroger client credentials token:", error);
+    return null;
+  }
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -781,6 +808,10 @@ export async function registerRoutes(
       res.json({
         isConfigured,
         isConnected,
+        // Product search works with just app credentials (no user sign-in needed)
+        canSearchProducts: isConfigured,
+        // Cart operations require user to be signed in
+        canUseCart: isConnected,
         locationId: tokens?.locationId || null,
       });
     } catch (error) {
@@ -968,7 +999,7 @@ export async function registerRoutes(
     }
   });
 
-  // Search Kroger products
+  // Search Kroger products (works with app credentials, no user sign-in required)
   app.get("/api/kroger/products", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
@@ -978,39 +1009,60 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Search term is required" });
       }
 
+      // Try user's token first (for personalized location-based pricing)
       let accessToken = await getValidKrogerToken(userId);
-      if (!accessToken) {
-        return res.status(401).json({ message: "Kroger not connected", reconnect: true });
+      let locationId: string | undefined;
+      let usingUserToken = !!accessToken;
+      
+      if (accessToken) {
+        const tokens = await storage.getKrogerTokens(userId);
+        locationId = tokens?.locationId || undefined;
+      } else {
+        // Fall back to app-level client credentials (no location personalization)
+        accessToken = await getKrogerClientToken();
+        if (!accessToken) {
+          // Kroger API not configured or unavailable - return empty array gracefully
+          return res.json([]);
+        }
       }
 
-      const tokens = await storage.getKrogerTokens(userId);
       let result = await krogerService.searchProducts(
         accessToken,
         term,
-        tokens?.locationId || undefined
+        locationId
       );
 
-      // Retry once if we get a 401/403 (token may have been revoked)
-      if (result.status === 401 || result.status === 403) {
+      // Retry with refresh only if using user token and got 401/403
+      if (usingUserToken && (result.status === 401 || result.status === 403)) {
         accessToken = await forceRefreshKrogerToken(userId);
-        if (!accessToken) {
-          return res.status(401).json({ message: "Kroger session expired. Please reconnect.", reconnect: true });
-        }
-        result = await krogerService.searchProducts(
-          accessToken,
-          term,
-          tokens?.locationId || undefined
-        );
-        if (result.status === 401 || result.status === 403) {
-          await storage.deleteKrogerTokens(userId);
-          return res.status(401).json({ message: "Kroger session expired. Please reconnect.", reconnect: true });
+        if (accessToken) {
+          result = await krogerService.searchProducts(
+            accessToken,
+            term,
+            locationId
+          );
+          if (result.status === 401 || result.status === 403) {
+            await storage.deleteKrogerTokens(userId);
+            // Fall back to client credentials
+            accessToken = await getKrogerClientToken();
+            if (accessToken) {
+              result = await krogerService.searchProducts(accessToken, term);
+            }
+          }
+        } else {
+          // User token refresh failed, try client credentials
+          accessToken = await getKrogerClientToken();
+          if (accessToken) {
+            result = await krogerService.searchProducts(accessToken, term);
+          }
         }
       }
 
       res.json(result.products);
     } catch (error) {
       console.error("Error searching Kroger products:", error);
-      res.status(500).json({ message: "Failed to search products" });
+      // Return empty array instead of 500 to keep UI functional
+      res.json([]);
     }
   });
 

@@ -56,6 +56,8 @@ import type { RecipeWithIngredients, ShoppingListItem, IngredientAlias, PantrySt
 interface KrogerStatus {
   isConfigured: boolean;
   isConnected: boolean;
+  canSearchProducts: boolean;
+  canUseCart: boolean;
   locationId: string | null;
 }
 

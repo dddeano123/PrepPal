@@ -36,17 +36,17 @@ export function IngredientAutocomplete({
   const dropdownRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Check if Kroger is connected
-  const { data: krogerStatus } = useQuery<{ isConfigured: boolean; isConnected: boolean }>({
+  // Check if Kroger product search is available (works without user sign-in)
+  const { data: krogerStatus } = useQuery<{ isConfigured: boolean; isConnected: boolean; canSearchProducts: boolean }>({
     queryKey: ["/api/kroger/status"],
   });
 
-  const isKrogerConnected = krogerStatus?.isConnected;
+  const canSearchProducts = krogerStatus?.canSearchProducts;
 
-  // Search Kroger products
+  // Search Kroger products (works with app credentials, no user sign-in required)
   const { data: products, isLoading: isSearching } = useQuery<KrogerProduct[]>({
     queryKey: [`/api/kroger/products?term=${encodeURIComponent(searchTerm)}`],
-    enabled: !!isKrogerConnected && searchTerm.length >= 2,
+    enabled: !!canSearchProducts && searchTerm.length >= 2,
     staleTime: 30000,
   });
 
@@ -60,7 +60,7 @@ export function IngredientAutocomplete({
 
     debounceRef.current = setTimeout(() => {
       setSearchTerm(newValue.trim());
-      if (newValue.trim().length >= 2 && isKrogerConnected) {
+      if (newValue.trim().length >= 2 && canSearchProducts) {
         setIsOpen(true);
       }
     }, 300);
@@ -139,7 +139,7 @@ export function IngredientAutocomplete({
           value={value}
           onChange={(e) => handleInputChange(e.target.value)}
           onFocus={() => {
-            if (searchTerm.length >= 2 && isKrogerConnected) {
+            if (searchTerm.length >= 2 && canSearchProducts) {
               setIsOpen(true);
             }
           }}
@@ -151,7 +151,7 @@ export function IngredientAutocomplete({
         <div className="absolute right-2 top-1/2 -translate-y-1/2">
           {isSearching ? (
             <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-          ) : isKrogerConnected ? (
+          ) : canSearchProducts ? (
             <ShoppingCart className="h-4 w-4 text-muted-foreground" />
           ) : (
             <Search className="h-4 w-4 text-muted-foreground" />
@@ -218,7 +218,7 @@ export function IngredientAutocomplete({
         </div>
       )}
 
-      {!isKrogerConnected && value.length >= 2 && (
+      {!canSearchProducts && value.length >= 2 && (
         <div className="absolute z-50 mt-1 w-full rounded-md border bg-popover p-3 shadow-lg">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <AlertCircle className="h-4 w-4" />

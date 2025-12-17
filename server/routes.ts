@@ -5,6 +5,7 @@ import { setupAuth, isAuthenticated } from "./replitAuth";
 import { searchUSDAFoods } from "./usda";
 import { krogerService } from "./kroger";
 import { searchOpenFoodFacts, getProductByBarcode } from "./openFoodFacts";
+import { fatSecretService } from "./fatsecret";
 import { generateCookingInstructions } from "./openai";
 import {
   insertRecipeSchema,
@@ -381,6 +382,72 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error fetching product from Open Food Facts:", error);
       res.status(500).json({ message: "Failed to fetch product" });
+    }
+  });
+
+  // FatSecret API routes
+  app.get("/api/fatsecret/search", isAuthenticated, async (req: any, res) => {
+    try {
+      const query = req.query.q as string;
+
+      if (!query || query.length < 2) {
+        return res.json([]);
+      }
+
+      if (!fatSecretService.isConfigured()) {
+        return res.status(503).json({ message: "FatSecret API not configured" });
+      }
+
+      const results = await fatSecretService.searchFoods(query, 20);
+      res.json(results);
+    } catch (error) {
+      console.error("Error searching FatSecret:", error);
+      res.status(500).json({ message: "Failed to search FatSecret database" });
+    }
+  });
+
+  app.get("/api/fatsecret/food/:foodId", isAuthenticated, async (req: any, res) => {
+    try {
+      const foodId = req.params.foodId;
+
+      if (!fatSecretService.isConfigured()) {
+        return res.status(503).json({ message: "FatSecret API not configured" });
+      }
+
+      const food = await fatSecretService.getFoodById(foodId);
+
+      if (!food) {
+        return res.status(404).json({ message: "Food not found" });
+      }
+
+      res.json(food);
+    } catch (error) {
+      console.error("Error fetching food from FatSecret:", error);
+      res.status(500).json({ message: "Failed to fetch food" });
+    }
+  });
+
+  app.get("/api/fatsecret/barcode/:barcode", isAuthenticated, async (req: any, res) => {
+    try {
+      const barcode = req.params.barcode;
+
+      if (!fatSecretService.isConfigured()) {
+        return res.status(503).json({ message: "FatSecret API not configured" });
+      }
+
+      console.log(`API: FatSecret barcode lookup for ${barcode}`);
+      const food = await fatSecretService.findFoodByBarcode(barcode);
+
+      if (!food) {
+        console.log(`API: FatSecret barcode ${barcode} not found`);
+        return res.status(404).json({ message: "Product not found for barcode" });
+      }
+
+      console.log(`API: FatSecret barcode ${barcode} found: ${food.foodName}`);
+      res.json(food);
+    } catch (error) {
+      console.error("Error fetching product from FatSecret:", error);
+      res.status(500).json({ message: "Failed to fetch product by barcode" });
     }
   });
 

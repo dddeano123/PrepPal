@@ -38,6 +38,6 @@ declare module "openai" {
 
   export default class OpenAI {
     chat: Chat;
-    constructor(options: { apiKey: string });
+    constructor(options: { apiKey: string; baseURL?: string });
   }
 }

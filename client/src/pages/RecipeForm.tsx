@@ -240,8 +240,7 @@ export default function RecipeForm() {
 
     setAutoMatchingIndices(prev => new Set(prev).add(index));
 
-    const autoMatchFood = async () => {
-      try {
+    try {
         const cleanDescription = (desc: string): string => {
           const commonBrands = [
             'kroger', 'simple truth', 'private selection', 'heritage farm',
@@ -362,21 +361,6 @@ export default function RecipeForm() {
         description: "You can manually link this ingredient using the Match button.",
         variant: "default",
       });
-      return;
-
-        queryClient.invalidateQueries({ queryKey: ["/api/foods"] });
-        
-        toast({
-          title: "Nutrition matched",
-          description: `Matched "${product.description}" to: ${savedFood.name}`,
-        });
-      } else {
-        toast({
-          title: "No nutrition match found",
-          description: "You can manually link this ingredient using the Match button.",
-          variant: "default",
-        });
-      }
     } catch (error) {
       console.error('Auto-match error:', error);
       toast({

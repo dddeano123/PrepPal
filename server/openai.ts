@@ -22,7 +22,7 @@ export async function generateCookingInstructions(
     throw new Error("No AI API key configured. Please set GROQ_API_KEY, DEEPSEEK_API_KEY, or OPENAI_API_KEY in Secrets.");
   }
 
-  const apiKey = groqKey || deepseekKey || openaiKey;
+  const apiKey = (groqKey || deepseekKey || openaiKey) as string;
   const baseURL = groqKey 
     ? "https://api.groq.com/openai/v1"
     : deepseekKey 

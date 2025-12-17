@@ -60,44 +60,50 @@ function generateOAuthParams(): Record<string, string> {
   };
 }
 
-function generateSignature(
-  method: string,
-  url: string,
-  params: Record<string, string>,
-  consumerSecret: string,
-  tokenSecret: string = ""
-): string {
-  const sortedParams = Object.keys(params)
-    .sort()
-    .map((key) => `${encodeURIComponent(key)}=${encodeURIComponent(params[key])}`)
-    .join("&");
-
-  const baseString = [
-    method.toUpperCase(),
-    encodeURIComponent(url),
-    encodeURIComponent(sortedParams),
-  ].join("&");
-
-  const signingKey = `${encodeURIComponent(consumerSecret)}&${encodeURIComponent(tokenSecret)}`;
-
-  return crypto.createHmac("sha1", signingKey).update(baseString).digest("base64");
+// RFC 3986 percent-encode (encodes more characters than standard encodeURIComponent)
+function rfc3986Encode(str: string): string {
+  return encodeURIComponent(str).replace(/[!'()*]/g, (c) => 
+    '%' + c.charCodeAt(0).toString(16).toUpperCase()
+  );
 }
 
 async function makeRequest(params: Record<string, string>): Promise<any> {
   const oauthParams = generateOAuthParams();
   const allParams: Record<string, string> = { ...oauthParams, ...params, format: "json" };
 
-  allParams.oauth_signature = generateSignature("POST", FATSECRET_API_BASE, allParams, CONSUMER_SECRET);
-
-  const queryString = Object.keys(allParams)
-    .map((key) => `${encodeURIComponent(key)}=${encodeURIComponent(allParams[key])}`)
+  // Build signature base string per OAuth 1.0 spec
+  // 1. Sort parameters alphabetically by key
+  // 2. Percent-encode each key and value
+  // 3. Join with &
+  const sortedKeys = Object.keys(allParams).sort();
+  const paramString = sortedKeys
+    .map((key) => `${rfc3986Encode(key)}=${rfc3986Encode(allParams[key])}`)
     .join("&");
 
-  const response = await fetch(`${FATSECRET_API_BASE}?${queryString}`, {
+  // Create base string: METHOD&url&params (each component percent-encoded)
+  const baseString = [
+    "POST",
+    rfc3986Encode(FATSECRET_API_BASE),
+    rfc3986Encode(paramString),
+  ].join("&");
+
+  // Signing key: consumer_secret& (no token secret for 2-legged OAuth)
+  const signingKey = `${rfc3986Encode(CONSUMER_SECRET)}&`;
+
+  const signature = crypto.createHmac("sha1", signingKey).update(baseString).digest("base64");
+  allParams.oauth_signature = signature;
+
+  // Send as POST body (form-urlencoded)
+  const body = Object.keys(allParams)
+    .map((key) => `${rfc3986Encode(key)}=${rfc3986Encode(allParams[key])}`)
+    .join("&");
+
+  const response = await fetch(FATSECRET_API_BASE, {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
     },
+    body: body,
   });
 
   if (!response.ok) {
@@ -106,7 +112,15 @@ async function makeRequest(params: Record<string, string>): Promise<any> {
     throw new Error(`FatSecret API error: ${response.status}`);
   }
 
-  return response.json();
+  const data = await response.json();
+  
+  // Check for API-level errors in successful responses
+  if (data.error) {
+    console.error("FatSecret API returned error:", data.error);
+    throw new Error(`FatSecret API error: ${data.error.message || JSON.stringify(data.error)}`);
+  }
+
+  return data;
 }
 
 function parseNutritionDescription(description: string): {

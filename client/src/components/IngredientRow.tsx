@@ -91,7 +91,7 @@ export function IngredientRow({
         <GripVertical className="h-4 w-4 text-muted-foreground cursor-grab" />
       </div>
 
-      <div className="col-span-3 overflow-visible">
+      <div className="col-span-4 overflow-visible">
         {onKrogerProductSelect ? (
           <IngredientAutocomplete
             value={ingredient.displayName}
@@ -174,17 +174,6 @@ export function IngredientRow({
         </Select>
       </div>
 
-      <div className="col-span-1">
-        <Input
-          type="number"
-          value={ingredient.grams}
-          onChange={(e) => onUpdate({ grams: parseFloat(e.target.value) || 0 })}
-          placeholder="g"
-          className="h-9 text-center font-mono"
-          data-testid={`input-ingredient-grams-${index}`}
-        />
-      </div>
-
       <div className="col-span-3 grid grid-cols-4 gap-1 text-center">
         {isAutoMatching ? (
           <div className="col-span-4 flex items-center justify-center gap-1">
@@ -247,10 +236,9 @@ export function IngredientTableHeader() {
   return (
     <div className="grid grid-cols-12 gap-2 px-3 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wide border-b">
       <div className="col-span-1"></div>
-      <div className="col-span-3">Ingredient</div>
+      <div className="col-span-4">Ingredient</div>
       <div className="col-span-1 text-center">Amount</div>
       <div className="col-span-1 text-center">Unit</div>
-      <div className="col-span-1 text-center">Grams</div>
       <div className="col-span-3 grid grid-cols-4 gap-1 text-center">
         <span>Cal</span>
         <span>P</span>
@@ -266,8 +254,7 @@ export function IngredientTotalsRow({ totals }: { totals: { calories: number; pr
   return (
     <div className="grid grid-cols-12 gap-2 px-3 py-3 border-t bg-muted/30 rounded-b-md">
       <div className="col-span-1"></div>
-      <div className="col-span-3 font-semibold">Total</div>
-      <div className="col-span-1"></div>
+      <div className="col-span-4 font-semibold">Total</div>
       <div className="col-span-1"></div>
       <div className="col-span-1"></div>
       <div className="col-span-3 grid grid-cols-4 gap-1 text-center font-mono font-semibold">

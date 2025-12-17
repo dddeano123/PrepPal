@@ -275,35 +275,93 @@ export default function RecipeForm() {
 
       const results: OFFSearchResult[] = await response.json();
       
+      // Try Open Food Facts first
       if (results.length > 0) {
         const bestMatch = results[0];
         
-        if (bestMatch.caloriesPer100g === 0 && bestMatch.proteinPer100g === 0) {
+        // If Open Food Facts has valid nutrition data, use it
+        if (bestMatch.caloriesPer100g > 0 || bestMatch.proteinPer100g > 0) {
+          const saveResponse = await apiRequest("POST", "/api/foods", {
+            name: bestMatch.brand ? `${bestMatch.productName} (${bestMatch.brand})` : bestMatch.productName,
+            dataType: 'Open Food Facts',
+            offProductCode: bestMatch.code,
+            caloriesPer100g: bestMatch.caloriesPer100g,
+            proteinPer100g: bestMatch.proteinPer100g,
+            carbsPer100g: bestMatch.carbsPer100g,
+            fatPer100g: bestMatch.fatPer100g,
+            isCustom: false,
+          });
+
+          const savedFood: Food = await saveResponse.json();
+          
+          updateIngredient(index, {
+            foodId: savedFood.id,
+            food: savedFood,
+          });
+          
           toast({
-            title: "Incomplete nutrition data",
-            description: "Please manually link this ingredient.",
-            variant: "default",
+            title: "Auto-matched from Open Food Facts",
+            description: `Linked to ${savedFood.name}`,
           });
           return;
         }
+      }
+      
+      // Fallback to USDA if Open Food Facts didn't work
+      const usdaResponse = await fetch(`/api/usda/search?q=${encodeURIComponent(searchTerm)}`);
+      
+      if (usdaResponse.ok) {
+        const usdaResults = await usdaResponse.json();
         
-        const saveResponse = await apiRequest("POST", "/api/foods", {
-          name: bestMatch.brand ? `${bestMatch.productName} (${bestMatch.brand})` : bestMatch.productName,
-          dataType: 'Open Food Facts',
-          offProductCode: bestMatch.code,
-          caloriesPer100g: bestMatch.caloriesPer100g,
-          proteinPer100g: bestMatch.proteinPer100g,
-          carbsPer100g: bestMatch.carbsPer100g,
-          fatPer100g: bestMatch.fatPer100g,
-          isCustom: false,
-        });
+        if (usdaResults.length > 0) {
+          const usdaMatch = usdaResults[0];
+          
+          // Extract macros from USDA nutrient array
+          const getNutrient = (id: number) => {
+            const nutrient = usdaMatch.foodNutrients.find((n: any) => n.nutrientId === id);
+            return nutrient ? nutrient.value : 0;
+          };
+          
+          const calories = getNutrient(1008); // Energy (kcal)
+          const protein = getNutrient(1003);  // Protein
+          const carbs = getNutrient(1005);    // Carbohydrate
+          const fat = getNutrient(1004);      // Total lipid (fat)
+          
+          if (calories > 0 || protein > 0) {
+            const saveResponse = await apiRequest("POST", "/api/foods", {
+              name: usdaMatch.description,
+              dataType: usdaMatch.dataType,
+              fdcId: usdaMatch.fdcId,
+              caloriesPer100g: calories,
+              proteinPer100g: protein,
+              carbsPer100g: carbs,
+              fatPer100g: fat,
+              isCustom: false,
+            });
 
-        const savedFood: Food = await saveResponse.json();
-        
-        updateIngredient(index, {
-          foodId: savedFood.id,
-          food: savedFood,
-        });
+            const savedFood: Food = await saveResponse.json();
+            
+            updateIngredient(index, {
+              foodId: savedFood.id,
+              food: savedFood,
+            });
+            
+            toast({
+              title: "Auto-matched from USDA",
+              description: `Linked to ${savedFood.name}`,
+            });
+            return;
+          }
+        }
+      }
+      
+      // If both sources fail, show manual input message
+      toast({
+        title: "No nutrition match found",
+        description: "You can manually link this ingredient using the Match button.",
+        variant: "default",
+      });
+      return;
 
         queryClient.invalidateQueries({ queryKey: ["/api/foods"] });
         

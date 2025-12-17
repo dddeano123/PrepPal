@@ -134,6 +134,11 @@ export function FoodSearchModal({
     enabled: open && debouncedQuery.length >= 2,
   });
 
+  const { data: usdaResults, isLoading: loadingUSDA } = useQuery<any[]>({
+    queryKey: ["/api/usda/search", debouncedQuery],
+    enabled: open && debouncedQuery.length >= 2,
+  });
+
   const createCustomFoodMutation = useMutation({
     mutationFn: async (data: CustomFoodFormValues) => {
       const payload = useServingSize
@@ -223,9 +228,10 @@ export function FoodSearchModal({
     food.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const isLoading = loadingSaved || loadingOFF;
+  const isLoading = loadingSaved || loadingOFF || loadingUSDA;
   const hasResults = (filteredSavedFoods && filteredSavedFoods.length > 0) || 
-    (offResults && offResults.length > 0);
+    (offResults && offResults.length > 0) ||
+    (usdaResults && usdaResults.length > 0);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -309,6 +315,66 @@ export function FoodSearchModal({
                         onSelect={() => handleSelectOFFProduct(product)}
                       />
                     ))}
+                  </div>
+                </section>
+              )}
+
+              {usdaResults && usdaResults.length > 0 && (
+                <section>
+                  <h3 className="text-sm font-medium text-muted-foreground mb-3">
+                    USDA Database Results
+                  </h3>
+                  <div className="space-y-2">
+                    {usdaResults.map((food) => {
+                      const getNutrient = (id: number) => {
+                        const nutrient = food.foodNutrients.find((n: any) => n.nutrientId === id);
+                        return nutrient ? nutrient.value : 0;
+                      };
+                      
+                      const calories = getNutrient(1008);
+                      const protein = getNutrient(1003);
+                      const carbs = getNutrient(1005);
+                      const fat = getNutrient(1004);
+                      
+                      return (
+                        <FoodResultItem
+                          key={food.fdcId}
+                          name={food.description}
+                          dataType={food.dataType}
+                          calories={calories}
+                          protein={protein}
+                          carbs={carbs}
+                          fat={fat}
+                          onSelect={async () => {
+                            try {
+                              const response = await apiRequest("POST", "/api/foods", {
+                                name: food.description,
+                                dataType: food.dataType,
+                                fdcId: food.fdcId,
+                                caloriesPer100g: calories,
+                                proteinPer100g: protein,
+                                carbsPer100g: carbs,
+                                fatPer100g: fat,
+                                isCustom: false,
+                              });
+                              const savedFood = await response.json();
+                              queryClient.invalidateQueries({ queryKey: ["/api/foods"] });
+                              onSelectFood(savedFood);
+                              toast({
+                                title: "Food added",
+                                description: `${savedFood.name} has been added to your foods.`,
+                              });
+                            } catch (error) {
+                              toast({
+                                title: "Error",
+                                description: "Failed to save food. Please try again.",
+                                variant: "destructive",
+                              });
+                            }
+                          }}
+                        />
+                      );
+                    })}
                   </div>
                 </section>
               )}

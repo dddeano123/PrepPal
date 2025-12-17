@@ -454,6 +454,15 @@ export class DatabaseStorage implements IStorage {
     return staple;
   }
 
+  async updatePantryStaple(id: number, userId: string, updates: Partial<InsertPantryStaple>): Promise<PantryStaple | undefined> {
+    const [updated] = await db
+      .update(pantryStaples)
+      .set(updates)
+      .where(and(eq(pantryStaples.id, id), eq(pantryStaples.userId, userId)))
+      .returning();
+    return updated;
+  }
+
   async deletePantryStaple(id: number, userId: string): Promise<boolean> {
     const result = await db
       .delete(pantryStaples)

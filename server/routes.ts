@@ -556,11 +556,16 @@ export async function registerRoutes(
         return res.status(400).json({ message: "This pantry staple already exists" });
       }
 
-      const validatedStaple = insertPantryStapleSchema.parse({
+      const stapleData: any = {
         userId,
         name,
         ...(req.body.category ? { category: req.body.category } : {}),
-      });
+        ...(req.body.krogerProductId ? { krogerProductId: req.body.krogerProductId } : {}),
+        ...(req.body.krogerProductName ? { krogerProductName: req.body.krogerProductName } : {}),
+        ...(req.body.krogerProductImage ? { krogerProductImage: req.body.krogerProductImage } : {}),
+      };
+
+      const validatedStaple = insertPantryStapleSchema.parse(stapleData);
 
       const staple = await storage.createPantryStaple(validatedStaple);
       res.status(201).json(staple);
@@ -570,6 +575,24 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Invalid staple data", errors: error.errors });
       }
       res.status(500).json({ message: "Failed to create pantry staple" });
+    }
+  });
+
+  app.patch("/api/pantry-staples/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const stapleId = parseInt(req.params.id);
+
+      const updated = await storage.updatePantryStaple(stapleId, userId, req.body);
+
+      if (!updated) {
+        return res.status(404).json({ message: "Pantry staple not found" });
+      }
+
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating pantry staple:", error);
+      res.status(500).json({ message: "Failed to update pantry staple" });
     }
   });
 

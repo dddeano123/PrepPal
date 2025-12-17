@@ -259,6 +259,9 @@ export const pantryStaples = pgTable("pantry_staples", {
   userId: varchar("user_id").notNull().references(() => users.id),
   name: text("name").notNull(), // Ingredient name pattern (case-insensitive match)
   category: text("category"), // Optional category for organization
+  krogerProductId: text("kroger_product_id"), // Kroger product UPC for cart integration
+  krogerProductName: text("kroger_product_name"), // Display name from Kroger
+  krogerProductImage: text("kroger_product_image"), // Product image URL
   createdAt: timestamp("created_at").defaultNow(),
 });
 

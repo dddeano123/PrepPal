@@ -101,6 +101,8 @@ function KrogerAddToCartDialog({
   shoppingItems,
   selectedProducts,
   setSelectedProducts,
+  includePantryStaples,
+  onIncludePantryChange,
   onAddToCart,
   isAdding,
 }: {
@@ -109,6 +111,8 @@ function KrogerAddToCartDialog({
   shoppingItems: ShoppingListItem[];
   selectedProducts: Map<string, { upc: string; quantity: number }>;
   setSelectedProducts: (products: Map<string, { upc: string; quantity: number }>) => void;
+  includePantryStaples: boolean;
+  onIncludePantryChange: (include: boolean) => void;
   onAddToCart: () => void;
   isAdding: boolean;
 }) {
@@ -116,6 +120,25 @@ function KrogerAddToCartDialog({
   const [loadingItems, setLoadingItems] = useState<Set<string>>(new Set());
 
   const { toast } = useToast();
+  
+  const { data: pantryStaples } = useQuery<PantryStaple[]>({
+    queryKey: ["/api/pantry-staples"],
+  });
+  
+  // Get pantry items to potentially include
+  const pantryItems = pantryStaples?.filter(staple => staple.krogerProductId) || [];
+  
+  // Combine shopping items with pantry items if checkbox is enabled
+  const allItems = includePantryStaples 
+    ? [...shoppingItems, ...pantryItems.map(staple => ({
+        displayName: staple.name,
+        totalGrams: 0,
+        category: staple.category || 'other',
+        isPantryStaple: true,
+        recipeNames: [],
+        amounts: [],
+      }))]
+    : shoppingItems;
   
   const searchProduct = async (itemName: string) => {
     setLoadingItems((prev) => new Set(prev).add(itemName));
@@ -195,9 +218,20 @@ function KrogerAddToCartDialog({
         <p className="text-sm text-muted-foreground">
           Search for products and add them to your Kroger cart. Click on an ingredient to search for matching products.
         </p>
+        <div className="flex items-center gap-2 mt-4">
+          <Checkbox
+            id="include-pantry-cart"
+            checked={includePantryStaples}
+            onCheckedChange={(checked) => onIncludePantryChange(!!checked)}
+            data-testid="checkbox-include-pantry-cart"
+          />
+          <Label htmlFor="include-pantry-cart" className="text-sm">
+            Include pantry staples ({pantryItems.length} items)
+          </Label>
+        </div>
         <ScrollArea className="flex-1 mt-4">
           <div className="space-y-3 pr-4">
-            {shoppingItems.map((item) => {
+            {allItems.map((item) => {
               const selected = selectedProducts.get(item.displayName);
               const results = searchResults.get(item.displayName);
               const isLoading = loadingItems.has(item.displayName);
@@ -302,7 +336,7 @@ function KrogerAddToCartDialog({
         <DialogFooter className="mt-4">
           <div className="flex items-center justify-between w-full gap-2">
             <span className="text-sm text-muted-foreground">
-              {selectedProducts.size} of {shoppingItems.length} items selected
+              {selectedProducts.size} of {allItems.length} items selected
             </span>
             <div className="flex items-center gap-2">
               <Button variant="outline" onClick={() => onOpenChange(false)}>
@@ -359,6 +393,7 @@ export default function ShoppingList() {
   const [newPantryStaple, setNewPantryStaple] = useState("");
   const [zipCode, setZipCode] = useState("");
   const [selectedProducts, setSelectedProducts] = useState<Map<string, { upc: string; quantity: number }>>(new Map());
+  const [includePantryInCart, setIncludePantryInCart] = useState(false);
 
   // Handle Kroger OAuth callback notifications
   useEffect(() => {
@@ -828,12 +863,12 @@ export default function ShoppingList() {
                   )}
                 </Button>
               </DialogTrigger>
-              <DialogContent className="max-w-md">
+              <DialogContent className="max-w-md max-h-[80vh] overflow-hidden flex flex-col">
                 <DialogHeader>
                   <DialogTitle>Pantry Staples</DialogTitle>
                 </DialogHeader>
                 <p className="text-sm text-muted-foreground">
-                  Items you always have on hand. These will be excluded from shopping lists when the "Exclude pantry staples" option is enabled.
+                  Items you always have on hand. These will be excluded from shopping lists when the "Exclude pantry staples" option is enabled. Link them to Kroger products for easy ordering.
                 </p>
                 <div className="space-y-4 mt-4">
                   <div className="flex gap-2">
@@ -862,28 +897,51 @@ export default function ShoppingList() {
                   </div>
                 </div>
                 {pantryStaples && pantryStaples.length > 0 && (
-                  <div className="mt-4">
+                  <div className="mt-4 flex-1 overflow-hidden flex flex-col">
                     <Label className="text-muted-foreground">Your pantry staples</Label>
-                    <ScrollArea className="max-h-[250px] mt-2">
-                      <div className="flex flex-wrap gap-2">
+                    <ScrollArea className="flex-1 mt-2">
+                      <div className="space-y-2 pr-4">
                         {pantryStaples.map((staple) => (
-                          <Badge
+                          <div
                             key={staple.id}
-                            variant="secondary"
-                            className="pr-1 gap-1"
+                            className="flex items-center justify-between gap-2 p-2 rounded-md border"
                             data-testid={`pantry-staple-${staple.id}`}
                           >
-                            {staple.name}
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium text-sm">{staple.name}</p>
+                              {staple.krogerProductId ? (
+                                <div className="flex items-center gap-1 mt-1">
+                                  <Store className="h-3 w-3 text-green-600" />
+                                  <span className="text-xs text-muted-foreground">Linked to Kroger</span>
+                                </div>
+                              ) : krogerStatus?.isConnected && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 px-2 mt-1 text-xs"
+                                  onClick={() => {
+                                    // TODO: Open search dialog for this staple
+                                    toast({
+                                      title: "Link to Kroger",
+                                      description: "Feature coming soon - search and link products",
+                                    });
+                                  }}
+                                >
+                                  <Link2 className="h-3 w-3 mr-1" />
+                                  Link product
+                                </Button>
+                              )}
+                            </div>
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="h-4 w-4 ml-1 p-0"
+                              className="h-8 w-8"
                               onClick={() => deletePantryStapleMutation.mutate(staple.id)}
                               data-testid={`button-delete-pantry-${staple.id}`}
                             >
-                              <X className="h-3 w-3" />
+                              <Trash2 className="h-4 w-4" />
                             </Button>
-                          </Badge>
+                          </div>
                         ))}
                       </div>
                     </ScrollArea>
@@ -991,6 +1049,8 @@ export default function ShoppingList() {
         shoppingItems={shoppingItems}
         selectedProducts={selectedProducts}
         setSelectedProducts={setSelectedProducts}
+        includePantryStaples={includePantryInCart}
+        onIncludePantryChange={setIncludePantryInCart}
         onAddToCart={() => {
           const items = Array.from(selectedProducts.values());
           if (items.length > 0) {

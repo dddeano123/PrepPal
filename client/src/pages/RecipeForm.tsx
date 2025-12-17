@@ -240,10 +240,11 @@ export default function RecipeForm() {
 
     setAutoMatchingIndices(prev => new Set(prev).add(index));
 
-    try {
-      const cleanDescription = (desc: string): string => {
-        const commonBrands = [
-          'kroger', 'simple truth', 'private selection', 'heritage farm',
+    const autoMatchFood = async () => {
+      try {
+        const cleanDescription = (desc: string): string => {
+          const commonBrands = [
+            'kroger', 'simple truth', 'private selection', 'heritage farm',
           'comforts', 'big k', 'check this out', 'psst', 'organic', 'natural'
         ];
         let cleaned = desc.toLowerCase();

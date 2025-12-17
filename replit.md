@@ -66,7 +66,8 @@ Preferred communication style: Simple, everyday language.
 
 ### External Service Integrations
 
-**FatSecret Platform API**: Primary source for branded food nutrition data. Uses OAuth 1.0 authentication.
+**FatSecret Platform API**: Primary source for branded food nutrition data. Uses OAuth 2.0 authentication.
+- OAuth 2.0 client credentials flow with token caching
 - Barcode lookup (by UPC) for exact product matching
 - Food name search with verified manufacturer data
 - Returns nutrition per serving, converted to per-100g for consistency
@@ -94,7 +95,7 @@ Keyword validation ensures the matched food contains the primary ingredient word
 ## External Dependencies
 
 ### Third-Party Services
-- **FatSecret Platform API** - Primary nutrition data source (requires `FATSECRET_CONSUMER_KEY`, `FATSECRET_CONSUMER_SECRET`)
+- **FatSecret Platform API** - Primary nutrition data source (requires `FATSECRET_CLIENT_ID`, `FATSECRET_CLIENT_SECRET`)
 - **USDA FoodData Central API** - Fallback nutrition data (requires `USDA_API_KEY` environment variable, defaults to `DEMO_KEY`)
 - **Replit Auth** - Authentication via OpenID Connect (requires `ISSUER_URL`, `REPL_ID`, `SESSION_SECRET`)
 - **Kroger API** - Shopping cart integration (requires `KROGER_CLIENT_ID`, `KROGER_CLIENT_SECRET`, `KROGER_REDIRECT_URI`)

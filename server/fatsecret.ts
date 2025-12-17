@@ -1,8 +1,9 @@
-import crypto from "crypto";
-
 const FATSECRET_API_BASE = "https://platform.fatsecret.com/rest/server.api";
-const CONSUMER_KEY = process.env.FATSECRET_CONSUMER_KEY || "";
-const CONSUMER_SECRET = process.env.FATSECRET_CONSUMER_SECRET || "";
+const FATSECRET_TOKEN_URL = "https://oauth.fatsecret.com/connect/token";
+const CLIENT_ID = process.env.FATSECRET_CLIENT_ID || "";
+const CLIENT_SECRET = process.env.FATSECRET_CLIENT_SECRET || "";
+
+let cachedToken: { token: string; expiresAt: number } | null = null;
 
 export interface FatSecretFood {
   food_id: string;
@@ -50,60 +51,50 @@ export interface FatSecretSearchResult {
   description: string;
 }
 
-function generateOAuthParams(): Record<string, string> {
-  return {
-    oauth_consumer_key: CONSUMER_KEY,
-    oauth_signature_method: "HMAC-SHA1",
-    oauth_timestamp: Math.floor(Date.now() / 1000).toString(),
-    oauth_nonce: crypto.randomBytes(16).toString("hex"),
-    oauth_version: "1.0",
-  };
-}
+async function getAccessToken(): Promise<string> {
+  if (cachedToken && Date.now() < cachedToken.expiresAt) {
+    return cachedToken.token;
+  }
 
-// RFC 3986 percent-encode (encodes more characters than standard encodeURIComponent)
-function rfc3986Encode(str: string): string {
-  return encodeURIComponent(str).replace(/[!'()*]/g, (c) => 
-    '%' + c.charCodeAt(0).toString(16).toUpperCase()
-  );
+  const credentials = Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString("base64");
+
+  const response = await fetch(FATSECRET_TOKEN_URL, {
+    method: "POST",
+    headers: {
+      "Authorization": `Basic ${credentials}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: "grant_type=client_credentials&scope=basic",
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("FatSecret token error:", response.status, errorText);
+    throw new Error(`FatSecret token error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  
+  cachedToken = {
+    token: data.access_token,
+    expiresAt: Date.now() + (data.expires_in - 60) * 1000,
+  };
+
+  console.log("FatSecret: Obtained new access token");
+  return cachedToken.token;
 }
 
 async function makeRequest(params: Record<string, string>): Promise<any> {
-  const oauthParams = generateOAuthParams();
-  const allParams: Record<string, string> = { ...oauthParams, ...params, format: "json" };
+  const token = await getAccessToken();
 
-  // Build signature base string per OAuth 1.0 spec
-  // 1. Sort parameters alphabetically by key
-  // 2. Percent-encode each key and value
-  // 3. Join with &
-  const sortedKeys = Object.keys(allParams).sort();
-  const paramString = sortedKeys
-    .map((key) => `${rfc3986Encode(key)}=${rfc3986Encode(allParams[key])}`)
-    .join("&");
+  const queryParams = new URLSearchParams({ ...params, format: "json" });
 
-  // Create base string: METHOD&url&params (each component percent-encoded)
-  const baseString = [
-    "POST",
-    rfc3986Encode(FATSECRET_API_BASE),
-    rfc3986Encode(paramString),
-  ].join("&");
-
-  // Signing key: consumer_secret& (no token secret for 2-legged OAuth)
-  const signingKey = `${rfc3986Encode(CONSUMER_SECRET)}&`;
-
-  const signature = crypto.createHmac("sha1", signingKey).update(baseString).digest("base64");
-  allParams.oauth_signature = signature;
-
-  // Send as POST body (form-urlencoded)
-  const body = Object.keys(allParams)
-    .map((key) => `${rfc3986Encode(key)}=${rfc3986Encode(allParams[key])}`)
-    .join("&");
-
-  const response = await fetch(FATSECRET_API_BASE, {
+  const response = await fetch(`${FATSECRET_API_BASE}?${queryParams.toString()}`, {
     method: "POST",
     headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json",
     },
-    body: body,
   });
 
   if (!response.ok) {
@@ -113,38 +104,13 @@ async function makeRequest(params: Record<string, string>): Promise<any> {
   }
 
   const data = await response.json();
-  
-  // Check for API-level errors in successful responses
+
   if (data.error) {
     console.error("FatSecret API returned error:", data.error);
     throw new Error(`FatSecret API error: ${data.error.message || JSON.stringify(data.error)}`);
   }
 
   return data;
-}
-
-function parseNutritionDescription(description: string): {
-  calories: number;
-  protein: number;
-  carbs: number;
-  fat: number;
-  servingInfo: string;
-} {
-  const result = { calories: 0, protein: 0, carbs: 0, fat: 0, servingInfo: "" };
-
-  const caloriesMatch = description.match(/Calories:\s*([\d.]+)/i);
-  const fatMatch = description.match(/Fat:\s*([\d.]+)g/i);
-  const carbsMatch = description.match(/Carbs:\s*([\d.]+)g/i);
-  const proteinMatch = description.match(/Protein:\s*([\d.]+)g/i);
-  const servingMatch = description.match(/^Per\s+([^-]+)\s*-/i);
-
-  if (caloriesMatch) result.calories = parseFloat(caloriesMatch[1]);
-  if (fatMatch) result.fat = parseFloat(fatMatch[1]);
-  if (carbsMatch) result.carbs = parseFloat(carbsMatch[1]);
-  if (proteinMatch) result.protein = parseFloat(proteinMatch[1]);
-  if (servingMatch) result.servingInfo = servingMatch[1].trim();
-
-  return result;
 }
 
 function convertToPer100g(
@@ -162,7 +128,7 @@ function convertToPer100g(
 }
 
 export function isConfigured(): boolean {
-  return Boolean(CONSUMER_KEY && CONSUMER_SECRET);
+  return Boolean(CLIENT_ID && CLIENT_SECRET);
 }
 
 export async function searchFoods(query: string, maxResults: number = 20): Promise<FatSecretSearchResult[]> {
@@ -172,6 +138,8 @@ export async function searchFoods(query: string, maxResults: number = 20): Promi
   }
 
   try {
+    console.log(`FatSecret: Searching for "${query}"`);
+    
     const data = await makeRequest({
       method: "foods.search.v3",
       search_expression: query,
@@ -183,7 +151,10 @@ export async function searchFoods(query: string, maxResults: number = 20): Promi
       language: "en",
     });
 
+    console.log(`FatSecret search response keys:`, Object.keys(data));
+
     if (!data.foods_search || !data.foods_search.results) {
+      console.log("FatSecret: No results found");
       return [];
     }
 
@@ -191,6 +162,7 @@ export async function searchFoods(query: string, maxResults: number = 20): Promi
     if (!foods) return [];
 
     const foodArray = Array.isArray(foods) ? foods : [foods];
+    console.log(`FatSecret: Found ${foodArray.length} results`);
 
     return foodArray.map((food: any) => {
       const servings = food.servings?.serving;
@@ -302,7 +274,7 @@ export async function findFoodByBarcode(barcode: string): Promise<FatSecretSearc
 
   try {
     console.log(`FatSecret: Looking up barcode ${barcode}`);
-    
+
     const data = await makeRequest({
       method: "food.find_id_for_barcode",
       barcode: barcode,
@@ -318,7 +290,7 @@ export async function findFoodByBarcode(barcode: string): Promise<FatSecretSearc
 
     const foodId = data.food_id.value || data.food_id;
     console.log(`FatSecret: Found food_id ${foodId} for barcode ${barcode}`);
-    
+
     return getFoodById(String(foodId));
   } catch (error) {
     console.error(`Error finding food by barcode ${barcode}:`, error);

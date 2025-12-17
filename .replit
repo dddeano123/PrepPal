@@ -47,4 +47,4 @@ integrations = ["javascript_database:1.0.0", "javascript_log_in_with_replit:1.0.
 KROGER_REDIRECT_URI = "https://diet-dynamics--dean200.replit.app/api/kroger/callback"
 
 [userenv.development]
-KROGER_REDIRECT_URI = "https://diet-dynamics--dean200.replit.app/api/kroger/callback"
+KROGER_REDIRECT_URI = "https://d72cc8f0-bdb3-4bca-9d10-b72d4dda47df-00-1rtbum7b3mgzg.janeway.replit.dev/api/kroger/callback"
